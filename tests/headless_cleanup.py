@@ -29,6 +29,9 @@ with socket.socket(socket.AF_UNIX) as server:
 
 
 def main():
+    if os.name == "nt":   # devctl is a stub there (no AF_UNIX): no runner starts a game to clean up
+        print("SKIP: devctl has no AF_UNIX socket on Windows")
+        return
     runner = Path(sys.argv[1]).resolve()
     with tempfile.TemporaryDirectory(prefix="d2d_cleanup_check_") as directory:
         root = Path(directory)
