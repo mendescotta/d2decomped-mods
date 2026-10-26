@@ -123,6 +123,7 @@ struct Spawn {
     std::uint32_t seed = 0;
     std::vector<std::pair<int, int>> path;                    // its preset's map AI points (FUN_00555910), subtiles
     bool dead = false;                                        // made in mode 12 (FUN_0054e600's dead MonPlace codes)
+    int pop_room = -1;                                        // its Level::rooms index when FUN_0054ec90 populated it (the roomstate mod's)
 };
 
 // A level's population so far (monster region +4 rooms done, +0xc rooms

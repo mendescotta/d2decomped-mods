@@ -350,6 +350,7 @@ static pad::Config g_pad_config;          // d2d.cfg pad_* (gamepad_map.hpp load
 static std::array<int, 6> g_automap_options{ 0, 0, 1, 1, 1, 0 };   // d2d.cfg automap_mode/fade/center/party/names/left (game.exe's registry)
 static bool        g_pad_controls = true;
 static bool        g_pause_sounds = true;   // world sounds hold under the paused game menu (deviations.md); off: --toggle pause_sounds=off
+static bool        g_roomstate = false;     // the roomstate mod (docs/mods/roomstate.md): d2d.cfg roomstate = 1 or --toggle roomstate=on
 static bool        g_coop_lobby = true;   // the title's "SINGLE PLAYER / COOP" and character select's co-op lobby; off: --toggle coop_lobby=off // Configure Controls' gamepad page (deviations.md); off: --toggle pad_controls=off
 static int         g_master_volume = 100, g_music_volume = 50;   // d2d.cfg master_volume / music_volume (the game menu sets them)
 static int         g_start_class = 0;
@@ -687,6 +688,7 @@ int run_windowed(std::vector<std::uint8_t>& framebuffer,
     if (!g_no_save) town.key_dir = save_dir;                 // <name>.key and default.key beside the saves, as game.exe keeps them
     town.pad_controls_page = g_pad_controls;
     town.pause_sounds = g_pause_sounds;
+    town.world.fight.roomstate.on = g_roomstate;
     town.shot_dir = g_user_dir / "screenshots";
     for (int option = 0; option < 5; ++option) town.game_menu.value[4][std::size_t(option) + 1] = g_automap_options[std::size_t(option)];
     town.automap.left = g_automap_options[5] != 0;
@@ -1648,7 +1650,7 @@ int main(int argc, char** argv) {
     // d2d's own changes to game.exe (deviations.md), each on by default:
     // --toggle trans_roof=off,... Names in kToggles.
     std::string toggles;
-    app.add_option("--toggle", toggles, "Turn d2d's deviations on/off: name=on|off[,...] (trans_roof, autoloot, autoparty, pad_controls, coop_lobby, pause_sounds)");
+    app.add_option("--toggle", toggles, "Turn d2d's deviations on/off: name=on|off[,...] (trans_roof, autoloot, autoparty, pad_controls, coop_lobby, pause_sounds, roomstate)");
     app.add_flag  ("--no-video", no_video, "Skip the startup cinematics");
     std::string join_host, game_exe, log_level = "info";
     app.add_option("--log-level", log_level, "error, warning, info, debug or trace");
@@ -1749,6 +1751,7 @@ int main(int argc, char** argv) {
 
     g_start_screen   = start_screen;
     g_video          = !no_video && cfg["video"] != "0";
+    g_roomstate      = cfg["roomstate"] == "1";
     {
         static const std::pair<std::string_view, bool*> kToggles[] = {
             { "trans_roof", &g_roof_cutout },   // the see-through circle in roofs round the player
@@ -1757,6 +1760,7 @@ int main(int argc, char** argv) {
             { "pad_controls", &g_pad_controls },   // Configure Controls' gamepad page
             { "coop_lobby", &g_coop_lobby },       // SINGLE PLAYER / COOP, partners pick their characters on character select
             { "pause_sounds", &g_pause_sounds },   // the world's sounds hold while a local game is paused
+            { "roomstate", &g_roomstate },         // mod: rooms' monsters stay as left between offline games, where they stood, with their life
         };
         std::string_view rest = toggles;
         while (!rest.empty()) {
@@ -1767,7 +1771,7 @@ int main(int argc, char** argv) {
             const auto name = item.substr(0, equals_at), value = equals_at == std::string_view::npos ? std::string_view("on") : item.substr(equals_at + 1);
             const auto toggle = std::ranges::find(kToggles, name, &std::pair<std::string_view, bool*>::first);
             if (toggle == std::end(kToggles) || (value != "on" && value != "off")) {
-                d2d::log::warn("--toggle: unknown '{}' (known: trans_roof, autoloot, autoparty, pad_controls, coop_lobby, pause_sounds; values on|off)", std::string(item));
+                d2d::log::warn("--toggle: unknown '{}' (known: trans_roof, autoloot, autoparty, pad_controls, coop_lobby, pause_sounds, roomstate; values on|off)", std::string(item));
                 continue;
             }
             *toggle->second = value == "on";

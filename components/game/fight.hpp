@@ -13,6 +13,7 @@
 
 #include <combat.hpp>
 #include <d2s_items.hpp>
+#include <roomstate.hpp>
 #include <rules.hpp>
 #include <sequences.hpp>
 #include <shadows.hpp>
@@ -376,6 +377,7 @@ struct Fight {
     bool cure(std::uint32_t now_ms);
     int game_difficulty = 0;                         // new_game's
     bool remote_monsters = false;                    // a game joined on a game.exe host: its monsters (S->C 0xac), none made here
+    d2d::mods::roomstate::Session roomstate;         // the roomstate mod (off unless toggled): rooms' monsters kept between games
 
     std::unordered_map<const Level*, std::vector<Monster>> kept;   // the other levels', while the player is away
     Spawning spawning;                                   // the game's rooms in play and what they spawned (new_game)

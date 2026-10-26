@@ -46,6 +46,7 @@ d2d_add_test(test_quest_bounds game)
 d2d_add_test(test_light rules)
 d2d_add_test(test_weather rules)
 d2d_add_test(test_combat rules)
+d2d_add_test(test_roomstate mods_roomstate)
 d2d_add_test(test_drops rules)
 d2d_add_test(test_skills rules)
 d2d_add_test(test_drlg drlg)
@@ -72,6 +73,9 @@ if (Python3_Interpreter_FOUND)
     # The pad's A on portals and waypoints.
     add_test(NAME pad_use_d2d
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pad_use_d2d.py $<TARGET_FILE:d2d>)
+    # The roomstate mod (docs/mods/roomstate.md): one character's games, a save between.
+    add_test(NAME roomstate_d2d
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/roomstate_d2d.py $<TARGET_FILE:d2d>)
     # One per act, each from a new character: `ctest -R quests_act -j3` checks
     # every act's quests in about the time of one. A new act: its number here.
     set(d2d_quest_tests "")
@@ -101,6 +105,6 @@ endif()
 if (d2d_test_env)
     set_tests_properties(test_d2s test_outdoor test_game test_exe_tables PROPERTIES ENVIRONMENT "${d2d_test_env}")
     if (TARGET d2d AND Python3_Interpreter_FOUND)
-        set_tests_properties(smoke_d2d coop_d2d coop_lobby_d2d pad_use_d2d ${d2d_quest_tests} PROPERTIES ENVIRONMENT "${d2d_test_env}")
+        set_tests_properties(smoke_d2d coop_d2d coop_lobby_d2d pad_use_d2d roomstate_d2d ${d2d_quest_tests} PROPERTIES ENVIRONMENT "${d2d_test_env}")
     endif()
 endif()

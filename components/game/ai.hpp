@@ -337,6 +337,8 @@ struct Monster {
     std::vector<std::pair<int, int>> path;
     bool half_freeze = false;
     int variant = -1;                         // the knights' rand(4) as made (d2d::rules::monster_variant), -1 none
+    int pop_room = -1;                        // its spawn's (rules::Spawn::pop_room): the roomstate mod's
+    int spawn_at = -1;                        // its spawn's index in the level's list (the roomstate mod's)
     [[nodiscard]] bool alive() const { return hit_points > 0 && !gone; }
     [[nodiscard]] bool targetable() const { return alive() && killable && !buried && !aloft && !riding; }   // unit flags 0xe: not a buried maggot, a vulture aloft, a riding imp, an unkillable one
     // As a target for the player's (or the merc's) hits.

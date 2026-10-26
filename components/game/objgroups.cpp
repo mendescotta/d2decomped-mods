@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -1159,7 +1160,9 @@ d2d::rules::Rng room_objects(const GameData& game_data, Spawning& spawning, cons
     if (pop.open(index, pop.themes)) pop.groups();
     pop.out->post = pop.seed.low;
     pop.out->rgn = pop.rgn.low;
+    const auto populated_from = spawning.levels[&level].spawns.size();
     pop.populate(ObjectRooms::none(level, index));
+    for (auto& spawn : std::span(spawning.levels[&level].spawns).subspan(populated_from)) spawn.pop_room = int(index);
     spawning.levels[&level].room_seeds[index] = pop.seed;
     pop.save(spawning);
     return pop.seed;
