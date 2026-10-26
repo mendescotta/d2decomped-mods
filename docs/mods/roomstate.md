@@ -53,7 +53,9 @@ monsters come as ever:
    population gives way to its kept monsters, where the first of the
    rolled ones stood, else at the end. Leaders are renumbered, so the
    pack indices `Monster::leader` reads hold. Nothing hidden is made: the
-   dead aren't there.
+   dead aren't there. A survivor whose leader was dead comes with none
+   (-1), as game.exe's absent leader: a fallen shaman's rally then sends
+   nothing (FUN_0058f730), and a tentacle without its head dies.
 4. Each monster made gets its spawn's index (`Monster::spawn_at`, what a
    save keeps it by) and its kept life. A spot since shut (a door) is
    swapped for the nearest free one.
