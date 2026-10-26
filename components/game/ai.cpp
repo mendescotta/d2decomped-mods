@@ -1334,7 +1334,9 @@ bool think(const GameData& game_data, const Level& level, Monster& monster, std:
     // FUN_005de0f0 / FUN_005de130: its next think n frames on (a wait after its mode).
     // ponytail: a wait counts from now, not the mode's end.
     if (act.wait > 0 || act.event > 0) monster.next_act = std::max(monster.next_act, now_ms + std::uint32_t(std::max(act.wait, act.event)) * 40);
-    if (rally)                                                     // FUN_0058f730 / FUN_0058ef40: its leader's group, itself too
+    // FUN_0058f730 / FUN_0058ef40: its leader's group, itself too. With no
+    // leader unit found (FUN_00552f60) nothing is sent.
+    if (rally && monster.leader >= 0)
         for (auto& other : pack)
             if (other.alive() && other.leader == monster.leader) other.ai_command = 1;
     for (;;) switch (act.act) {
