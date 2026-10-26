@@ -169,6 +169,15 @@ inline Fighter simple_fighter(int min, int max, int attack_rating, int defense =
 // 120 x v / (120 + v), FRW 150 x v / (150 + v).
 inline int effective_speed(int speed, int cap = 120) { return speed > 0 ? cap * speed / (cap + speed) : speed; }
 
+// A player's walk / run / town-walk animation rate, 1/256 frames a tick
+// (FUN_00623f50 on a PlrMode +4 mode): FUN_006213d0's base, RN 0x65, WL and
+// TW 0xd5 (AnimData's speed isn't read), x the walk % (velocitypercent +
+// effective FRW, at least 25) / 100, clamped to 0..0x7fff. The client's
+// player tick (FUN_00463390) steps WL / RN / TW by it (FUN_00623e00).
+inline int moving_anim_rate(bool run, int walk_percent) {
+    return std::clamp((run ? 0x65 : 0xd5) * std::max(walk_percent, 25) / 100, 0, 0x7fff);
+}
+
 // Ticks an attack animation of `frames` frames at AnimData `rate` takes with
 // `ias` and weapon speed `wsm` (1.10): EIAS = effective IAS - WSM, clamped
 // to -85..75; ticks = ceil(256 x frames / (rate x (100 + EIAS) / 100)).

@@ -122,7 +122,13 @@ characters. Companion to [[char-create-table]] and [[frontend-menu-table]]
   - get-hit: scaled by FHR + 50;
   - block: scaled by FBR (+50 or +100);
   - other modes: scaled by stat 69 `other_animrate`, clamped to 15..175 %;
-  - walk/run: take it straight.
+  - walk / run / town walk (PlrMode +4): `FUN_006213d0`'s base, RN 0x65,
+    WL and TW 0xd5 (AnimData's speed isn't read), x the walk % (stat 67
+    velocitypercent + effective FRW, at least 25) / 100. The client's
+    player tick `FUN_00463390` steps these modes (0x711e04 class 0) with
+    `FUN_00623e00` at that rate, so a run's cycle (8 frames) takes 2048 /
+    151 = 14 ticks against a walk's 10. Ported: `rules::moving_anim_rate`
+    (`tools/emu/walk_rates.py` diffs it).
 
   The frame advances by rate/256 each 40 ms tick.
 

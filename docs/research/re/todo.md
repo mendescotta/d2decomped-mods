@@ -68,7 +68,6 @@ Known differences in the ones it draws, and what's left to check:
 | # | What | Kind | Seen | Where |
 |---|---|---|---|---|
 | 25 | Timings from the COF, where AnimData.d2 is game.exe's | exact | maybe | world_view.hpp:198, fight.hpp:498, fight.hpp:729 |
-| 26 | Run / walk animation isn't sped by faster run/walk. Traced 2026-10-26: `FUN_00623f50` sets a moving mode's rate (PlrMode table 0x6e8a00 +4: WL, RN, TW) to `FUN_006213d0` (a player: RN 0x65, else 0xd5) x (stat 0x43 + FRW 150 x f / (150 + f), table 0x6e8e24) / 100, at least 25 %; the base reads as RN slower than WL, so check what the client steps before porting | trace | yes | world.cpp `footstep_frame` ponytail |
 | 27 | Overlays: their light (Radius) isn't stamped, LoopWaitTime isn't applied | exact | yes | town.hpp:61, world_view.cpp:415 |
 | 28 | An NPC's act lasts 600 ms, not its animation; the balloon starts wherever d2d's loop is | exact | maybe | town.cpp:811, town.cpp:2732 |
 | 29 | COF transparent layers: which of 25 / 50 / 75 % draw effects 0..2 are | trace | maybe | unverified.md, deviations.md approximation 9 |
