@@ -12,6 +12,8 @@
 #include "npc_menu.hpp"
 #include "protocol.hpp"
 
+#include <roomstate_game.hpp>
+
 #include <combat.hpp>
 #include <cube.hpp>
 #include <d2s_items.hpp>
@@ -39,6 +41,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -393,6 +396,7 @@ auto World::save() -> std::string {
         const auto err = characters->save(header, fight.own_stats(), actor->character.items, actor->corpses.empty() ? &no_corpse : &actor->corpses.back().items);
         if (err.empty()) actor->character.header.last_played = header.last_played;
         d2d::log::info("save {}: {}", header.name, err.empty() ? "written" : err);
+        if (const auto why = err.empty() ? d2d::mods::roomstate::saved(fight.roomstate, fight) : std::string{}; !why.empty()) d2d::log::warn("roomstate: {}", why);
         return err;
     }
 
@@ -1121,6 +1125,8 @@ auto World::enter(const Character& entering) -> void {
 
 auto World::new_game() -> void {
         fight.new_game(actor->character.header.active_difficulty());
+        fight.roomstate.begin(characters ? characters->dir / (actor->character.header.name + ".roomstate") : std::filesystem::path{}, game_data->map_seed,
+                              actor->character.header.active_difficulty());
         set_waypoint(0);                          // the town's is always active (FUN_00661030 forces index 0 as the save loads)
         day = {};                                 // a new game starts at sunrise
         day_at = now;
