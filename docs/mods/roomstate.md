@@ -28,8 +28,9 @@ monsters come as ever:
 - The Den of Evil (quest 1) is done when the Den's monsters are all dead
   (`World::den_count`). While it's open (bits 0 and 15 clear), the Den
   rolls as ever. Once done it's kept like anywhere else.
-- The Golden Bird (quest 0x14): the first unique act 3 makes carries the
-  jade figurine (`World::act3_update`). While it's open (bits 0 and 1
+- The Golden Bird (quest 0x14): the first qualifying unique act 3 makes,
+  including one in a nearby level, carries the jade figurine. `Fight`
+  records boss creation order for the quest hook. While it's open (bits 0 and 1
   clear), act 3's uniques and their minions are the ones the room rolls,
   not the kept ones.
 
