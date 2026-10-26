@@ -254,6 +254,7 @@ auto World::view() const -> View {
         view.stunned = now < actor->stunned;
         view.pmode = actor->pmode;
         view.prate = actor->prate;
+        view.walk_percent = walk_percent(*actor, now);
         view.seq.assign(actor->seq.begin(), actor->seq.end()); view.seq_frame_ms = actor->seq_frame_ms; view.seq_loop = actor->seq_loop;
         view.gfx = fight.gfx();
         if (actor->merc && actor->merc_npc) {
@@ -290,7 +291,7 @@ auto World::view() const -> View {
                     if (const auto* skill = now < state.until ? game_data->skills.get(state.skill) : nullptr) states.push_back(skill->aurastate);
                 view.others.push_back({ player->player, cls, player->character.name, std::uint32_t(player->id),
                                         player->character.appearance ? *player->character.appearance : game_data->starting_gear[std::size_t(cls)],
-                                        player->ghost ? -1 : player->pmode, running(*player), std::move(states), player->ghost });
+                                        player->ghost ? -1 : player->pmode, running(*player), std::move(states), player->ghost, walk_percent(*player, now) });
             }
         for (const auto& player : players)
             if (player->body && player->body->level == level)
@@ -2602,8 +2603,8 @@ auto World::apply(const Command& command, std::uint32_t now_ms) -> void {
 // A walking or running player's footsteps (FUN_004caf60): two a cycle of the
 // walk's animation, from its start, on the floor tile under them (its DT1
 // material, else the level's SoundEnviron Material 1), each at least two
-// thirds of a step after the last.
-// ponytail: the animation's rate is AnimData's, not sped by faster run/walk.
+// thirds of a step after the last. The animation's rate is the walk's
+// (rules::moving_anim_rate), as the client's footsteps read it (unit +0x4c).
 auto World::greet_sound(const Npc& npc, int kind) -> int {
         const auto* greeting = d2d::rules::sound_ids::greeting_of(npc.hc_idx);
         if (!greeting) return 0;
@@ -2627,15 +2628,27 @@ auto World::footstep_frame(std::uint32_t tick_ms) -> void {
         if (walking && !actor->stepping) actor->walk_from_ms = tick_ms;   // a walk starting: its cycle from here
         actor->stepping = walking;
         if (!walking || fight.dead() || cls < 0 || cls >= 7 || actor->ghost) return;
-        const bool run = actor->running && actor->character.stats.values[d2d::d2s::kStamina] > 0 && !in_town(level);
-        const auto& anim = fight.player_anim(run ? kModeRN : in_town(level) ? kModeTW : kModeWL);
-        const int rate = int(anim.speed ? anim.speed : anim.cof_speed ? anim.cof_speed : 256);
+        const bool run_on = actor->running && actor->character.stats.values[d2d::d2s::kStamina] > 0;   // RN as drawn, in town too
+        const bool run = run_on && !in_town(level);
+        const auto& anim = fight.player_anim(run_on ? kModeRN : in_town(level) ? kModeTW : kModeWL);
+        const int rate = std::max(d2d::rules::moving_anim_rate(run_on, walk_percent(*actor, tick_ms)), 1);
         const int length = int(anim.frames ? anim.frames : anim.cof_frames) * 256, count = 2;
         const int pos = int((tick_ms - actor->walk_from_ms) / 40) * rate % std::max(length, 1);
         if (!footfall(pos, rate, length, count, 0)) return;
         if (tick_ms - actor->step_sound_ms < std::uint32_t(2 * length / (count * rate) / 3) * 40) return;
         actor->step_sound_ms = tick_ms;
         cues.cue(footstep(kPlayerVoice[std::size_t(cls)].step, fight.floor_material_at(actor->player.x, actor->player.y), run), tick_ms, actor->player.x, actor->player.y);
+    }
+
+// FUN_00623f50's walk %: velocitypercent (100; running, run x 100 / walk),
+// faster run/walk's effective % (150 x v / (150 + v)) and chill's -50, at
+// least 25. It scales both the walk's velocity and its animation.
+auto World::walk_percent(const Player& player, std::uint32_t now_ms) const -> int {
+        const auto save_class = std::size_t(std::max(player.character.character_class, 0));
+        const int walk = std::max(game_data->walk_velocity[save_class], 1);
+        const int base = player.running && player.character.stats.values[d2d::d2s::kStamina] > 0 ? game_data->run_velocity[save_class] * 100 / walk : 100;
+        const int chill = now_ms < player.chilled ? -50 : 0;   // Fight::chill_rate, for any player
+        return std::max(base + d2d::rules::effective_speed(player.player_combat.frw, 150) + chill, 25);
     }
 
 auto World::stamina_frame() -> void {
@@ -2871,8 +2884,7 @@ auto World::tick(std::span<const Order> orders, std::uint32_t now_ms, std::uint3
                 // FUN_00623f50: the walk velocity x a % (at least 25) of 100 (run: run x 100 / walk),
                 // faster run/walk's effective % (150 x v / (150 + v)) and chill's -50.
                 const int walk = std::max(game_data->walk_velocity[save_class], 1);
-                const int base = actor->running && actor->character.stats.values[d2d::d2s::kStamina] > 0 ? game_data->run_velocity[save_class] * 100 / walk : 100;
-                const float vel = float(walk * std::max(base + d2d::rules::effective_speed(actor->player_combat.frw, 150) + fight.chill_rate(now_ms), 25)) / 100.f;
+                const float vel = float(walk * walk_percent(*actor, now_ms)) / 100.f;
                 const float before_x = actor->player.x, before_y = actor->player.y;
                 actor->player.walking = follow_path(*level, actor->player, cells_per_sec(vel) * elapsed, walk_crowd);
                 // The merc's think reads the player's footsteps (FUN_00580c20): walking or

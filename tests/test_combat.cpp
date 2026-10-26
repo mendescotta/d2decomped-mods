@@ -12,12 +12,23 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 using namespace d2d::rules;
 
-int main() {
+int main(int argc, char** argv) {
+    // `--walk-rates`: the walk / run animation rate at every walk % 0..400,
+    // as tools/emu/walk_rates.py prints game.exe's (`mode percent rate`).
+    if (argc > 1 && std::string_view(argv[1]) == "--walk-rates") {
+        for (const int mode : { 2, 3, 6 })
+            for (int percent = 0; percent <= 400; ++percent) std::printf("%d %d %d\n", mode, percent, moving_anim_rate(mode == 3, percent));
+        return 0;
+    }
+    // A walk's animation rate (FUN_00623f50): RN 0x65, WL / TW 0xd5, x the walk % (at least 25).
+    assert(moving_anim_rate(false, 100) == 213 && moving_anim_rate(true, 150) == 151);
+    assert(moving_anim_rate(false, 0) == 53 && moving_anim_rate(true, 400) == 404);
     assert(hit_chance(100, 100, 1, 1) == 50);
     assert(hit_chance(1000, 1, 5, 1) == 95 && hit_chance(10, 1000, 1, 1) == 5);
     assert(kill_exp(100, 1, 1) == 100 && kill_exp(100, 10, 1) == 24 && kill_exp(100, 20, 1) == 5);

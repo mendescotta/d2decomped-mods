@@ -165,6 +165,10 @@ void view_units(const Scene& scene, const View& view, float camera_x, float came
         const int mode = other.mode >= 0 ? other.mode : other.running ? kModeRN : other.unit.walking ? (in_town ? kModeTW : kModeWL) : (in_town ? kModeTN : kModeNU);
         out.push_back({ other.unit.x, other.unit.y, &scene.composite(other.cls, mode, other.gfx), other.unit.dir, &other.name, other.unit.mode_ms, -4000 - int(i) });
         out.back().overlay_class = 1;                 // FUN_006223a0: a player's Height2
+        // A walk, run or town walk plays at their walk's rate, as our own (FUN_00623f50).
+        if (other.mode < 0 && !other.ghost && (mode == kModeWL || mode == kModeRN || mode == kModeTW))
+            if (const auto& walk_anim = *out.back().anim; walk_anim.speed || walk_anim.cof_speed)
+                out.back().rate = float(d2d::rules::moving_anim_rate(mode == kModeRN, other.walk_percent)) / float(walk_anim.speed ? walk_anim.speed : walk_anim.cof_speed);
         if (other.ghost) { out.back().spirit = true; out.back().shadow = false; }   // local co-op's dead, walking along
         dress(scene, out.back(), -2 - int(other.id & 0xffffff), other.states, clk);
     }
@@ -3228,6 +3232,10 @@ auto Town::draw_view(std::vector<std::uint8_t>& framebuffer, std::vector<std::ui
                  : pmode == kModeDD ? kModeDT : pmode >= 0 ? pmode : unit.walking ? (run_on ? kModeRN : town ? kModeTW : kModeWL) : town ? kModeTN : kModeNU;
         std::uint32_t mode_ms = unit.mode_ms;
         float rate = pmode >= 0 && pmode != kModeDD ? view.prate : 1.f;
+        // A walk, run or town walk plays at the walk's rate, not AnimData's (FUN_00623f50).
+        if (pmode < 0 && !view.ghost && (mode == kModeWL || mode == kModeRN || mode == kModeTW))
+            if (const auto& walk_anim = scene->composite(cls, mode, view.gfx); walk_anim.speed || walk_anim.cof_speed)
+                rate = float(d2d::rules::moving_anim_rate(mode == kModeRN, view.walk_percent)) / float(walk_anim.speed ? walk_anim.speed : walk_anim.cof_speed);
         if (!view.seq.empty() && attack_mode(pmode)) { std::tie(mode, mode_ms) = view_seq(*scene, int(cls), view, frame_ms); rate = 1.f; }   // an SQ skill's frame
         const auto light = frame_light(*scene, view, cam_x, cam_y, den_beams, den_ambient(), extra, &player_look, frame_ms, &hero_at);
         // A pad in the field shows no cursor: it hovers what A would act on

@@ -249,7 +249,8 @@ of life) / length, [0xc] cold length, [0xd] freeze length.
     replaces the old.
 - **Rates** (`FUN_00623f50`): walk % = effective FRW (table 0x6e8e24) +
   stat 67 (100; running run × 100 / walk), at least 25, on the walk
-  velocity; attack % = effective IAS + stat 68, 15..175 (attack_ticks'
+  velocity and on the walk's animation (RN 0x65, WL / TW 0xd5, char-select.md
+  "Unit animation timing"); attack % = effective IAS + stat 68, 15..175 (attack_ticks'
   eias, chill as −50 SIAS).
 - Ported: `chill_length` / `monster_blow` (combat.hpp), `Fight::land`
   (monsters), `Fight::chill_rate`; the merc and the chill's 0x6b roll aren't.
