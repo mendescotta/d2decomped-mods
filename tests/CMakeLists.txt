@@ -76,6 +76,8 @@ if (Python3_Interpreter_FOUND)
     # The roomstate mod (docs/mods/roomstate.md): one character's games, a save between.
     add_test(NAME roomstate_d2d
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/roomstate_d2d.py $<TARGET_FILE:d2d>)
+    add_test(NAME roomstate_runner_cleanup
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/headless_cleanup.py ${CMAKE_CURRENT_SOURCE_DIR}/roomstate_d2d.py)
     # One per act, each from a new character: `ctest -R quests_act -j3` checks
     # every act's quests in about the time of one. A new act: its number here.
     set(d2d_quest_tests "")
@@ -86,15 +88,20 @@ if (Python3_Interpreter_FOUND)
     endforeach()
 endif()
 
-# Optional game-data inputs, handed to the tests that use them (they skip
-# those parts when unset): -DD2_PATCH_INSTALLER=.../LODPatch_114d.exe,
+# Optional game-data inputs. Setting D2_MPQ_DIR makes the mod integration
+# test require both the MPQs and the patch instead of reporting a skip:
+# -DD2_PATCH_INSTALLER=.../LODPatch_114d.exe,
 # -DD2_SAVES_DIR=<dir of real .d2s saves>, -DD2_GAME_EXE=.../game.exe.
 set(D2_PATCH_INSTALLER "$ENV{D2_PATCH_INSTALLER}" CACHE FILEPATH "LODPatch_114d.exe for the 1.14d tables")
+set(D2_MPQ_DIR "$ENV{D2_MPQ_DIR}" CACHE PATH "Game data for required headless integration tests")
 set(D2_GAME_EXE "$ENV{D2_GAME_EXE}" CACHE FILEPATH "game.exe 1.14d (1.14.3.71) for test_exe_tables")
 set(D2_SAVES_DIR "$ENV{D2_SAVES_DIR}" CACHE PATH "Real .d2s saves for parser checks")
 set(d2d_test_env "")
 if (D2_PATCH_INSTALLER)
     list(APPEND d2d_test_env "D2_PATCH_INSTALLER=${D2_PATCH_INSTALLER}")
+endif()
+if (D2_MPQ_DIR)
+    list(APPEND d2d_test_env "D2_MPQ_DIR=${D2_MPQ_DIR}" "D2D_REQUIRE_GAME_DATA=1")
 endif()
 if (D2_GAME_EXE)
     list(APPEND d2d_test_env "D2_GAME_EXE=${D2_GAME_EXE}")
