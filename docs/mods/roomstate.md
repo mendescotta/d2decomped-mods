@@ -71,5 +71,9 @@ A store of another map seed or file version starts over.
   `World::new_game`, `World::save`, `main.cpp`'s toggle.
 - Tests: `tests/test_roomstate.cpp` (the store, the replay, a session)
   and `tests/roomstate_d2d.py` (games of one character over devctl: the
-  same monsters kept, a level emptied, the Den, the Golden Bird, the mod
-  off).
+  same monsters, their position and wounded life kept, a level emptied,
+  the Den, the Golden Bird, the mod off). Configure with `D2_MPQ_DIR` and
+  `D2_PATCH_INSTALLER` to make missing data fail this integration test;
+  without them it skips. `D2D_TEST_FAIL_AFTER_START=1` checks its cleanup
+  path by injecting an error after game startup; `tests/headless_cleanup.py`
+  runs that check automatically with a fake devctl server.
