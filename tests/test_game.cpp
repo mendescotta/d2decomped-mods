@@ -222,6 +222,31 @@ int main(int argc, char** argv) try {
     character.items = made.items;
     character.panel = panel_stats(*data, character.header, character.items, character.stats);
 
+    {
+        // A fallen shaman's rally goes to its leader's group only. One with
+        // no leader (made outside a group, or its leader gone) sends nothing, and
+        // doesn't reach others with none (FUN_0058f730).
+        const auto shaman_row = data->monsters.by_id.find("fallenshaman1"), fallen_row = data->monsters.by_id.find("fallen1");
+        assert(shaman_row != data->monsters.by_id.end() && fallen_row != data->monsters.by_id.end());
+        auto rallied = [&](int leader) {
+            d2d::rules::Rng rng{ 1 };
+            Level here{};
+            here.id = d2d::rules::level_ids::kBloodMoor;
+            std::vector<Monster> pack{ make_monster(*data, int(shaman_row->second), 10.f, 10.f, rng, 0),
+                                       make_monster(*data, int(fallen_row->second), 10.f, 14.f, rng, 0) };
+            for (auto& monster : pack) monster.leader = leader;
+            std::array<Foe, 1> foes{};
+            foes[0].x = 16.f; foes[0].y = 10.f;
+            const Crowd crowd;
+            std::vector<Missile> missiles;
+            for (std::uint32_t frame = 1; frame <= 2000 && pack[1].ai_command == 0; ++frame)
+                monster_update(*data, here, pack[0], foes, rng, frame * 40, 0.04f, crowd, missiles, pack);
+            return pack[1].ai_command == 1;
+        };
+        assert(rallied(0));
+        assert(!rallied(-1));
+    }
+
     World world(&*data, -1, -1);
     world.enter(character);
     for (std::uint32_t tick = 1; tick <= 25; ++tick) world.tick({}, tick * kTickMs, (tick - 1) * kTickMs);
