@@ -538,6 +538,16 @@ void register_game_verbs(d2d::devctl::Channel& channel, Window& win, Screen& scr
             make_boss(*scene, *best, d2d::rules::Boss::unique, mods, -1, town.world.rng(0x10000), town.hero.character.header.active_difficulty(), town.world.rng);
             return std::format("ok #{} {} aura={} lvl={}\n", best->id, best->npc.name, best->aura, best->aura_lvl);
         }
+        if (args.size() == 4 && args[1] == "wound") {             // test-only: set one live monster's life to a percent of max
+            const int id = std::atoi(args[2].c_str()), percent = std::atoi(args[3].c_str());
+            if (percent < 1 || percent > 99) return std::string("err percent 1..99\n");
+            for (auto& monster : town.world.fight.monsters)
+                if (monster.id == id && monster.alive()) {
+                    monster.hit_points = std::max(1, monster.stats.hit_points * percent / 100);
+                    return std::format("ok {}/{}\n", monster.hit_points, monster.stats.hit_points);
+                }
+            return std::string("err no live monster\n");
+        }
         if (args.size() >= 2 && args[1] == "kill" && scene) {   // kill the level's monsters but <n>, those of MonStats id <spare>, those over <cells> off (quests)
             int keep = args.size() >= 3 && args[2] != "spare" && args[2] != "within" ? std::atoi(args[2].c_str()) : 0;
             const auto spare_at = std::ranges::find(args, std::string("spare")), within_at = std::ranges::find(args, std::string("within"));

@@ -22,11 +22,13 @@ Usage: roomstate_d2d.py <path-to-d2d>
    same roll), its groups not (a fetish camp the map places stands
    there every game), and the figurine drops again; the quest done
    (debug quest 20), the next game's uniques stay down too.
-Skips without the MPQs or the 1.14d patch.
+Skips without the MPQs or the 1.14d patch unless D2D_REQUIRE_GAME_DATA=1.
 """
 import os
+import math
 import platform
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -37,8 +39,8 @@ d2d = sys.argv[1]
 data = os.environ.get("D2_MPQ_DIR") or os.path.expanduser("~/Workspace/private/diablo2")
 patch = os.environ.get("D2_PATCH_INSTALLER")
 if not os.path.exists(os.path.join(data, "d2data.mpq")) or not patch or not os.path.exists(patch):
-    print("SKIP: the MPQs or D2_PATCH_INSTALLER not found")
-    sys.exit(0)
+    print("missing MPQs or D2_PATCH_INSTALLER" + (" (required)" if os.environ.get("D2D_REQUIRE_GAME_DATA") == "1" else "; SKIP"))
+    sys.exit(1 if os.environ.get("D2D_REQUIRE_GAME_DATA") == "1" else 0)
 
 BLOOD_MOOR, DEN, SPIDER_FOREST = 2, 8, 76
 GOLDEN_BIRD = 0x14
@@ -53,6 +55,7 @@ store = os.path.join(save_dir, NAME + ".roomstate")
 sock_path = os.path.join(tempfile.gettempdir(), f"d2d_roomstate_{os.getpid()}.sock")
 env = dict(os.environ, HOME=home)
 env.pop("D2_MPQ_DIR", None)
+games = []
 
 
 def cmd(line):
@@ -96,6 +99,13 @@ def alive(kinds=None):
     return [row for row in up if kinds is None or row[1] in kinds]
 
 
+def live_details():
+    """Type, kind, position and life of the monsters currently up."""
+    rows = [line.split("\t") for line in cmd("monsters").splitlines() if line and not line.startswith("ok")]
+    return [(row[0], row[7], float(row[1]), float(row[2]), *(int(n) for n in row[5].split("/")), int(row[11][1:]))
+            for row in rows if len(row) > 11 and not row[5].startswith("0/")]
+
+
 def placed(kinds):
     """The monsters up of those kinds, each its MonStats id and cell: a map's presets stand where they're put every game."""
     rows = [line.split("\t") for line in cmd("monsters").splitlines() if line and not line.startswith("ok")]
@@ -130,7 +140,12 @@ class Game:
             args += ["--start-screen", "ingame", "--start-class", "0", "--start-name", name]
         else:
             args += ["--start-screen", "charselect", "--start-name", name]
-        self.proc = subprocess.Popen(args, env=env, stdout=self.log, stderr=self.log)
+        try:
+            self.proc = subprocess.Popen(args, env=env, stdout=self.log, stderr=self.log)
+        except BaseException:
+            self.log.close()
+            raise
+        games.append(self)
         until("devctl", lambda: cmd("ping"))
         if not new:
             until("character select", lambda: state()["screen"] == "charselect")
@@ -155,12 +170,18 @@ class Game:
 try:
     # 1: a new character; 2 of the Blood Moor's left, 1 of the Den's.
     game = Game("first", new=True)
+    if os.environ.get("D2D_TEST_FAIL_AFTER_START") == "1":
+        raise RuntimeError("injected failure after starting d2d")
     go(BLOOD_MOOR, "quarters")
     first_moor = len(alive())
     assert first_moor > 2, f"the Blood Moor came up with {first_moor} monsters"
     cmd("debug kill 2")
     assert len(alive()) == 2
     survivors = sorted(alive())                       # the same two come back: their types and kinds
+    target = live_details()[0]
+    cmd(f"debug wound {target[6]} 40")
+    first_details = live_details()
+    assert len(first_details) == 2 and any(0 < hp < maximum for _, _, _, _, hp, maximum, _ in first_details)
     go(DEN, "sweep")
     first_den = alive(["-"])                          # its groups (Corpsefire and his pack are presets: they come back anyway)
     assert len(first_den) > 1, f"the Den came up with {alive()}"
@@ -173,6 +194,12 @@ try:
     game = Game("second")
     go(BLOOD_MOOR, "quarters")
     assert sorted(alive()) == survivors, f"the Blood Moor: {alive()} (left: {survivors})"
+    returned = live_details()
+    assert sorted(round(hp / maximum, 2) for _, _, _, _, hp, maximum, _ in returned) == sorted(
+        round(hp / maximum, 2) for _, _, _, _, hp, maximum, _ in first_details), f"survivors' life changed: {returned}"
+    for kind, boss, x, y, _, _, _ in first_details:
+        assert any(other_kind == kind and other_boss == boss and math.hypot(other_x - x, other_y - y) < 8
+                   for other_kind, other_boss, other_x, other_y, _, _, _ in returned), f"survivor moved far from its saved position: {returned}"
     go(DEN, "sweep")
     assert len(alive(["-"])) > 1, f"the Den, its quest open, kept to its 1 left: {alive()}"   # kills' drops step the game seed: not the same roll
     cmd("debug kill")
@@ -224,5 +251,20 @@ try:
     game.quit()
     print("roomstate_d2d: PASS")
 finally:
+    for started in games:
+        if started.proc.poll() is None:
+            try:
+                cmd("quit")
+                started.proc.wait(timeout=5)
+            except (OSError, AssertionError, subprocess.TimeoutExpired):
+                if started.proc.poll() is None:
+                    started.proc.terminate()
+                    try:
+                        started.proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        started.proc.kill()
+                        started.proc.wait(timeout=5)
+        started.log.close()
     if os.path.exists(sock_path):
         os.unlink(sock_path)
+    shutil.rmtree(home)
