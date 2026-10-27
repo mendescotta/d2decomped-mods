@@ -1,3 +1,5 @@
+> **d2decomped-mods:** this repo holds gameplay mods on top of [d2decomped](https://github.com/psi29a/d2decomped). Start at [`mod-tools/README.md`](mod-tools/README.md) for the mods, their branches and tools; the rest of this README is d2decomped's own.
+
 ![D2Decomped](assets/icon/hero.png)
 
 # D2Decomp
