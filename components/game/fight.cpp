@@ -152,6 +152,7 @@ auto Fight::new_game(int difficulty) -> void {
         actor->pets.clear();
         actor->attack_mon = -1;
         actor->pmode = -1;
+        actor->struck_class = actor->shown_class = 0;   // a new game's unit: no hit class yet
     }
 
 auto Fight::merc_joins() -> void {
@@ -430,7 +431,7 @@ auto Fight::set_pmode(int mode, std::uint32_t now_ms) -> void {
         actor->prate = len ? float(anim.length_ms()) / float(len) : 1.f;
         actor->pmode_until = mode == kModeDD ? 0 : now_ms + len;
         // Struck or dying (FUN_004cc410's player branch): the hit's impact, then the class's own cry.
-        // ponytail: FUN_004b9e90's check before the GH cry isn't traced; a missile's hit class isn't kept.
+        // ponytail: FUN_004b9e90's check before the GH cry isn't traced.
         if (mode == kModeGH || mode == kModeDT) {
             const auto impact = d2d::rules::sound_ids::impact(actor->struck_class, mode == kModeDT);
             cues.cue(impact.impact, now_ms, actor->player.x, actor->player.y);
@@ -441,6 +442,14 @@ auto Fight::set_pmode(int mode, std::uint32_t now_ms) -> void {
                 cues.cue(mode == kModeDT ? voice.death : voice.hit, now_ms, actor->player.x, actor->player.y);
             }
         }
+        // A block (FUN_004cb860): by the hit class the client last had (unit +0xb0), the
+        // last landed hit's. A blocked hit clears its flag 1 (FUN_0057ec10), so FUN_0057cee0
+        // keeps the old class and no hit packet (S→C 0x0c) carries a new one.
+        if (mode == kModeBL)
+            cues.cue(d2d::rules::sound_ids::block(actor->shown_class), now_ms, actor->player.x, actor->player.y);
+        // A kick (FUN_004cc5b0's KK): weapon_kick, an Assassin's 4 ticks on.
+        if (mode == kModeKK)
+            cues.cue(d2d::rules::sound_ids::kKick, now_ms + (actor->character.character_class == d2d::d2s::kAssassin ? d2d::rules::sound_ids::kKickDelayMs : 0u), actor->player.x, actor->player.y);
         // A skill starting (FUN_004c6140): its stsound (its ItemCastSound from an item), the
         // weapon's swing for weaponsnd, and the class's own stsoundclass; stsounddelay holds
         // them back the swing's frames less 3 ticks (FUN_004ca500).
@@ -4586,8 +4595,9 @@ auto Fight::world(bool in_moor, std::uint32_t now_ms, float elapsed, const Crowd
                         if (skill_missile_hits(missile, i, now_ms)) return true;
                         continue;
                     }
-                    land(i, d2d::rules::player_blow(d2d::rules::simple_fighter(missile.min, missile.max, missile.attack_rating), target_of(i), missile.level, rng),
-                         false, now_ms);
+                    auto blow = d2d::rules::player_blow(d2d::rules::simple_fighter(missile.min, missile.max, missile.attack_rating), target_of(i), missile.level, rng);
+                    if (missile.info) blow.hit_class = missile.info->hit_class;   // an arrow's, not hand to hand's (as a skill's missile, Missiles.txt HitClass)
+                    land(i, blow, false, now_ms);
                     return true;
                 }
                 return false;
@@ -4647,6 +4657,12 @@ auto Fight::hurt_side(std::span<Foe> side, std::uint32_t now_ms) -> void {
             }
         }
         auto& foe = side[0];
+        // The last landed blow's hit class (unit +0xb0), before a knockback's GH plays its impact.
+        // The client gets it on every landed hit, a get-hit or not: FUN_0057cee0 copies it with
+        // result flag 1, and a hit too small for a GH sets unit flag 0x8000, so FUN_00597cf0 sends
+        // it in S->C 0x0c. A later block plays its class.
+        // ponytail: state 0x36 (uninterruptable) drops result flag 4, so no 0x0c; d2d has no such state.
+        if (foe.hits > 0) actor->struck_class = actor->shown_class = foe.hit_class;
         // Poison works on the player over its ticks (a negative potion).
         // One poison at a time: a new one at least as strong replaces it
         // (and its length), a weaker one is ignored (FUN_0057ac50).
@@ -4717,10 +4733,6 @@ auto Fight::hurt_side(std::span<Foe> side, std::uint32_t now_ms) -> void {
         }
         if (foe.blocked && actor->pmode < 0) set_pmode(kModeBL, now_ms);   // a block plays out (FBR)
         for (int landed = 0; landed < foe.hits; ++landed) wear_armor(now_ms);
-        if (foe.hits > 0) {                                         // a monster's MonStats2 HitClass; a missile's none here
-            const int striker = foe.melee_by.empty() ? -1 : monster_index(foe.melee_by.back());
-            actor->struck_class = striker < 0 || monsters[std::size_t(striker)].type < 0 ? 0 : game_data->monsters.types[std::size_t(monsters[std::size_t(striker)].type)].hit_class;
-        }
         foe.damage = absorb(foe, now_ms);
         foe.damage += int(actor->self_hurt >> 8);
         actor->self_hurt &= 255;

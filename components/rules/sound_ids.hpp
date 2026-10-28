@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdlib>
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 namespace d2d::rules::sound_ids {
@@ -36,9 +37,9 @@ inline constexpr int kCainHelp = 3671;
 inline constexpr std::array<int, 7> kClassSelect = { 17, 25, 21, 23, 19, 0, 0 };   // d2s class order; expansions have no classic intro cue
 inline constexpr std::array<int, 7> kClassDeselect = { 18, 26, 22, 24, 20, 0, 0 };
 
-// A hit class (hitclass.txt's rows, as Weapons.txt "hit class" and
-// Missiles.txt HitClass name them) in its low nibble; a skill's HitClass
-// adds an element's layer in the high one (Skills.txt writes the number).
+// A hit class (hitclass.txt's rows, as Weapons.txt "hit class" names them)
+// in its low nibble; a skill's HitClass adds an element's layer in the high
+// one (Skills.txt and Missiles.txt write the number).
 inline constexpr std::array<std::string_view, 14> kHitClassCodes = { "", "hth", "1hss", "1hsl", "2hss", "2hsl", "1ht", "2ht",
                                                                      "club", "staf", "bow", "xbow", "claw", "over" };
 inline int hit_class(std::string_view code) {
@@ -146,5 +147,17 @@ inline Impact impact(int hit_class, bool dying) {
     }
     return out;
 }
+
+// A player's block (FUN_004cb860 -> FUN_004ca810): block_weapon for hit
+// classes 1..9, block_arrow for bow and crossbow, none for the rest (claw,
+// overhead, none).
+inline constexpr int kBlockWeapon = 398, kBlockArrow = 401;
+inline int block(int hit_class) {
+    const int low = hit_class & 0xf;
+    return low >= 1 && low <= 9 ? kBlockWeapon : low == 10 || low == 11 ? kBlockArrow : 0;
+}
+// A player's kick (KK, FUN_004cc5b0): weapon_kick, an Assassin's 4 ticks on.
+inline constexpr int kKick = 255;
+inline constexpr std::uint32_t kKickDelayMs = 4 * 40;   // FUN_004b9a00's delay, 4 ticks
 
 }  // namespace d2d::rules::sound_ids

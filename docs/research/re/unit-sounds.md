@@ -7,8 +7,8 @@ Traced 2026-10-21 from game.exe 1.14d (client side, `.\UNIT\UnitSnd.cpp`).
 A unit starting a mode plays its sound by unit type (FUN_004ca320):
 
 - **Player**: DT (0), GH (4), KB (0x13) → FUN_004cc410 (struck);
-  A1 / A2 (7 / 8) → FUN_004cb6a0 (the swing); BL (9) → FUN_004cb860;
-  KK (0xc) a kick sound by class; S3 (0xf) a Barbarian's swing, S4 (0x10)
+  A1 / A2 (7 / 8) → FUN_004cb6a0 (the swing); BL (9) → FUN_004cb860 (below);
+  KK (0xc) weapon_kick (below); S3 (0xf) a Barbarian's swing, S4 (0x10)
   an Assassin's. SQ (0x12) plays nothing (the byte table at 0x4cc74c), so a
   sequence skill (Jab, Charge, Whirlwind) has no swing; d2d's `set_pmode`
   skips it when `Fight::skill_sequence` has frames.
@@ -45,6 +45,27 @@ Its delay (FUN_004ca500) is `(frames x 256 + 128) / speed` ticks, speed
 being the animation's rate (unit +0x4c, 256 = a frame a tick; IAS in it).
 A swing plays hit or miss.
 
+## Block and kick
+
+- **Block** (BL, FUN_004cb860 → FUN_004ca810): the low nibble of the
+  player's hit class (unit +0xb0): 1..9 → 398 block_weapon, 10 / 11 (bow,
+  crossbow) → 401 block_arrow, anything else none (claw 12, overhead 13,
+  none 0; the byte table at 0x4ca864). It sets the unit's last sound (+0x7c)
+  too. The class is the last landed hit's, not the blocked attack's: a
+  block sets result flag 0x10 and clears flag 1 (FUN_0057ec10, from
+  FUN_0057dfb0's 1), and FUN_0057cee0 copies the hit class into the server
+  unit's +0xb0 only with flag 1. A landed hit reaches the client either as
+  the GH, or, too small for one (FUN_0057cb00, no stun), as unit flag
+  0x8000, which makes FUN_00598220 send S→C 0x0c (FUN_00597cf0, +0xb0 at +7).
+  No hit packet goes out for a block, so the client keeps the class of the
+  last hit. A block before any hit plays nothing.
+- **Kick** (KK, in FUN_004cc5b0): 255 weapon_kick on the player, an
+  Assassin's 4 ticks on (FUN_004b9a00's delay), any other class's at once.
+
+d2d: `sound_ids::block` / `kKick` / `kKickDelayMs`, `Fight::set_pmode`;
+`Hero::shown_class` keeps the last landed hit's class, a GH or not (none
+again in a new game, `Fight::new_game`).
+
 ## Struck, FUN_004cc410 → FUN_004ca560
 
 The struck unit's hit class (unit +0xb0, the last hit's) gives two
@@ -70,8 +91,10 @@ sounds, both at once:
 
 The hit class: Weapons.txt `hit class` (hitclass.txt codes: hth 1, 1hss 2,
 1hsl 3, 2hss 4, 2hsl 5, 1ht 6, 2ht 7, club 8, staf 9, bow 10, xbow 11,
-claw 12, over 13), Missiles.txt HitClass for a missile, Skills.txt
-HitClass (+0x134, a number) OR-ed in (Bash 112 = 0x70).
+claw 12, over 13), Missiles.txt HitClass for a missile (a number, not a
+code: FUN_00661b20's column list reads it as type 4, a byte, into record
++0x94; arrow 10, javelin 6, goospit 0xb0), Skills.txt HitClass (+0x134, a
+number) OR-ed in (Bash 112 = 0x70).
 
 ## Skills (Skills.cpp, client)
 
@@ -348,9 +371,16 @@ The remaining 106 rows have these causes:
 | 5 `event_desert_night_1..5` | No SoundEnviron row selects these names. The desert environments use their daytime event group at night too. |
 | 8 `rogue_confirm_*` | Unit sound event 0xf on a Rogue (class 0x10f, FUN_004cb9c0). The server sends it only from C→S 0x46's handler (FUN_0054c4b0 → FUN_0054c430: the player's merc sent to a unit), and the stock client never builds 0x46, so stock 1.14d never plays them. |
 | 13 NPC speech rows | Alkor, Asheara, Cain's act 4 greeting, Guard, Hratli, Iron Wolf, Ormus, Tyrael and Warriv rows. None is in the speech table (0x72b0e0), the only way a dialogue string plays a voice, and no client code plays their numbers (where game.exe has them, they're string ids or line numbers: 0xe8d in FUN_004a1950 is a string), so as traced stock 1.14d never plays them. |
-| 8 monster / skeleton rows | Diablo's taunts: `monster_diablo_taunt_1` plays at frame 50 of the `diablo` missile (pCltDoFunc 37, FUN_004d6540, the missile's +0x10 current frame), which also shakes the screen at frame 150; d2d makes neither that missile nor screen shake (see `andariel_quake_loop`); `monster_diablo_taunt_ex`, with the screen shake, on event message 0x12, Diablo Walks the Earth (FUN_0049eb10), a realm event no single-player or d2d host sends. Not traced yet: `monster_cast_lightning`, `monster_meteor_impact`, `monster_izual_taunt`, `skeleton_cast_*` (no client code plays their numbers directly). |
+| 2 `monster_diablo_taunt_*` | Diablo's taunts: `monster_diablo_taunt_1` plays at frame 50 of the `diablo` missile (pCltDoFunc 37, FUN_004d6540, the missile's +0x10 current frame), which also shakes the screen at frame 150; d2d makes neither that missile nor screen shake (see `andariel_quake_loop`); `monster_diablo_taunt_ex`, with the screen shake, on event message 0x12, Diablo Walks the Earth (FUN_0049eb10), a realm event no single-player or d2d host sends. |
+| 6 monster / skeleton rows | `monster_cast_lightning` (421), `monster_meteor_impact` (437), `skeleton_cast_cold` / `_lightning` / `_poison` (1799..1801) and `monster_izual_taunt_2` (4644). No table column names them (Skills stsound names their siblings `monster_cast_cold` / `_fire`, MonSounds Weapon1 / 2 `skeleton_cast_fire` for every skeleton mage, all four rows being `firemage.wav`) and game.exe has no `mov ecx, <id>` / `push <id>` before a play for them (the 0x1a5 / 0x1b5 / 0x706 / 0x708 immediates are FUN_00477170's monster classes, screen-coordinate compares in FUN_0049a*/0049b*, assert line numbers for FUN_00408090, and a (string, number) record at 0x640d6e). The swing, FUN_004cb6a0, plays Weapon1 / 2 (+0x10 / +0x28) as they are, with no element offset; the taunt, FUN_004cbde0 event 0x10, plays +0x74 Taunt alone (`monster_izual_taunt_1`, Group Size 0). So as traced stock 1.14d never plays them. |
 | 1 `andariel_quake_loop` | The screen shake's sound. FUN_00476a80 (strength, ramp in, hold, fade out in ms) starts a shake; each frame FUN_00476d40 takes its strength along that envelope, moves the camera up to twice it either way, and FUN_004769d0 plays this row unplaced at volume strength x 255 / 10 (at most 255), stopping it at 0. Shakes start from the missiles' pCltDoFunc 29 (andycontrol0), 31 (horadricstaff), 36 (durieldeathcontrol), 37 (diablo), 54 (anya) and 58 (royalstrikechaosice), event message 0x12 and the client skill function 0x727a90[145]; d2d has no screen shake yet. |
 | 1 `scene_tavern_interior` | Front-end tavern scene only; d2d does not implement that scene. |
+
+Of the 106, 97 are traced as never played by stock 1.14d: the 70 class
+quest phrases, the 8 rogue confirms, the 13 NPC rows and the 6 monster /
+skeleton rows. So d2d plays 3,414 of the 3,423 rows the original does. The
+five desert-night rows aren't counted with them: no SoundEnviron row names
+them, but no code path playing them has been ruled out.
 
 These are trigger or feature gaps, not missing audio files. The two shrine
 sounds are covered by shrine activation cues; the audit counts code cues even
@@ -359,7 +389,8 @@ when a same-named overlay/state field also appears in the tables.
 `Blow::hit_class` (+ `Swing::hit_class`, a missile's row) → `Monster::hit_class`
 in `Fight::land`; `Fight::monster_sounds` plays the impact on GH / KB / DT,
 `Fight::set_pmode` the swing, the skill's start sounds and the player's cry
-and impact (`Hero::struck_class`, a melee attacker's MonStats2 HitClass),
+and impact (`Hero::struck_class`, from `Foe::hit_class`: the last landed
+blow's, a melee monster's MonStats2 HitClass or a missile's HitClass),
 `Fight::do_sounds` the do. Missiles: a `Missile::sound` id each, its
 TravelSound cued with it as owner, stopped by the client when it's gone from
 the View (`Audio::stop_owners`). States: `StateClock` in `dress()`. Footsteps:
@@ -367,8 +398,7 @@ the View (`Audio::stop_owners`). States: `StateClock` in `dress()`. Footsteps:
 `Town::object_sounds`. Greetings: `World::greet_sound`. Sound rolls use
 `Fight::sound_rng`, apart from the game's.
 Left: the player's quest lines, monsters' own skill stsound,
-prgsound, ProgSound, block (FUN_004cb860) and kick sounds, state 0x92, a
-missile's hit class on a player, the town's floor material (its DS1 tiles
+prgsound, ProgSound, state 0x92, the town's floor material (its DS1 tiles
 aren't in `room_floors`: dirt). Cursor item sounds (identify, repair, break,
 point-drop and convert) are cued at their successful actions; only the
 convert-ready cue remains.

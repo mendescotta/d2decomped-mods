@@ -38,11 +38,30 @@ room tile's own orientation (`+0x1c`).
 `FUN_00458f40(room, all, layer)` runs it over the room's floors
 (`FUN_00619660`), then its walls (`FUN_006196a0`), skipping tiles with
 flag 8 (hidden). Unless `all` (or `DAT_007a51a0`) is set, only tiles
-with flag 0x20000 count. Callers:
-- `FUN_00459020`, each time the player has moved ~80 (a distance on the
-  `FUN_00620650`/`FUN_006206b0` position) since the last reveal: the
-  player's room and its near rooms (`FUN_00619790`) of the same Layer,
-  `all` = 0.
+with flag 0x20000 count.
+
+Flag 0x20000 is "drawn on screen". The tile draws set it, each tile
+by its own draw, so a cell's floors and walls come in apart:
+- floors (`FUN_004de730` -> `FUN_004de410` -> `FUN_004dde80`) and roofs
+  (`FUN_004dea70`): when the draw's spot (screen x = tile px x + 0x50 -
+  view x, y = tile px y - 0x50 - view y, less a roof's height: the
+  buffer's top left) is inside the view's box, view `+0x14..+0x20`.
+  `FUN_00476000` sets it to `{-0x50, -0x50, W + 0x50, H - 0x2f}` (W, H:
+  `0x71146c`, `0x711470`); the 3D modes (`FUN_004f51d0` != 0) take 0x2d
+  more off the left and 0x1e off the top, 0x1e onto the right.
+- walls and lower walls (`FUN_004df1c0`, `FUN_004dedf0`): when the
+  driver's wall draw (`+0xa0`, DirectDraw / GDI `FUN_005130a0`) drew a
+  block: a 32 px block whose top left is in x `[-0x20, W)`, y
+  `(-0x21, H + 0x20)` (`0x7c9138`, `0x7c913c`: the draw buffer's W
+  and H). A side panel open takes its half: right (`FUN_0045ae90` 1)
+  x `< W - W/2`, left (2) x `>= W/2 - 0x20`.
+
+So the map only ever gets tiles that have been on screen. Callers:
+- `FUN_00459020`, each time the player has moved 80 client px (an
+  octagon distance on `FUN_00620650` / `FUN_006206b0`, the unit's client
+  px) since the last reveal: the player's room and its near rooms
+  (`FUN_00619790`) of the same Layer, `all` = 0. Tiles drawn in between
+  keep the flag, so they come in at the next one.
 - `FUN_00459150`, the DRLG room callback: the whole room, `all` = 1.
 
 Cel sets: act 1 uses `UI\AutoMap\MaxiMap` (1499 cels of 16×32); act 2
@@ -52,13 +71,27 @@ divisor 20 instead of 10).
 
 ## Drawing (`FUN_00459700` → `FUN_00459440`, four passes)
 
-- `scroll = player world px / div - screen / 2 + (40, 15)`.
-  - With a side panel open, x shifts by ∓W/4.
+- The scroll (`0x7a5198`, `0x7a519c`) starts from the view's top left,
+  not the player: `FUN_0045b440` sets `0x7a520c` = player client x - W/2
+  and `0x7a5208` = client y - H/2 + 16. Then
+  - x = `0x7a520c` / div - `0x7a5220` / 2 - shift + 0x28 + `0x7a5188`;
+  - y = `0x7a5208` / div - `0x7a521c` / 2 + 0xf + `0x7a518c`.
+  - `0x7a5220` = W and `0x7a521c` = H - 40 (`FUN_0044ba20`, at the
+    resolution change).
+  - `0x7a5188` / `0x7a518c` are 0 full size; mini, W/3 - box x - 16 and
+    H/3 - box y - 16 (`FUN_00457640`, the box from `FUN_00457520`).
+  - shift is -W/4 / +W/4 with a side panel open (`FUN_0045ae90` 1 / 2),
+    full size only.
+- So the player's cell lands on their feet, (400, 294) at 800 x 600; mini
+  at (663, 174), about the box's middle. `tools/emu/automap_scroll.py`
+  runs these three on 96 cases; `rules::automap_scroll` matches all
+  (test_automap_scroll).
 - `screen = cell * 10 / div - scroll`, drawn via `FUN_004f6510` (DC6,
   bottom-left anchoring), clipped to the screen (or to the small map's
   box).
 - Cells within ~150 px of the centre use fade draw modes 0/1/2 (the
-  "AutoMapFade" option).
+  "AutoMapFade" option). The centre is (`0x7a5220` / 2, `0x7a521c` / 2),
+  y 280 at 800 x 600.
 
 ## Unit marks (`FUN_0045a860` → `FUN_0045a7f0`)
 
@@ -219,8 +252,15 @@ dropped, otherwise the cel decides.
 ## d2d
 
 - Tab toggles the automap.
-- Tiles within 12 of the player are revealed as you walk; D2 reveals by
-  room.
+- What render_world drew last frame (`g_drawn`, with the level it
+  drew) is revealed, as game.exe's flag 0x20000, tile by tile (each
+  `DrawnCell` names its pick or DS1 layer cell): a floor or roof by the
+  view box, a wall by its DT1 blocks (`dt1::Tile::blocks`) with the side
+  panel's half, each above. Before 2026-10-28 d2d took every tile
+  within 12 of the player, a square about three screens across (a
+  tester saw the map run past what's in view). W is the screen's width,
+  as game.exe's box takes `0x71146c`: a wider screen reveals more there
+  too.
 - A generated level reveals its `Level::picks` (the DT1 tiles game.exe's
   rooms take), by their DT1 header like `FUN_00457cf0`. A maze level's
   (caves, crypts, Jail, Cathedral, Catacombs) DS1 is blank, so reading
@@ -249,8 +289,21 @@ dropped, otherwise the cel decides.
   - Object icons (`automap_icons`): objects with an Objects.txt AutoMap
     cel (shrines, wells, the Cairn Stones, the Tree of Inifuss, ...) go
     in list 2 at their px / 10 + (1, -3), with `FUN_00458dc0`'s
-    conditions. game.exe adds them as a unit's flag 0x10000000 comes up;
-    d2d within its 12-tile reveal reach.
+    conditions, once drawn: game.exe's unit flag 0x10000000, set by
+    `FUN_004dc7b0` for each unit of the view's draw list (`FUN_004df1c0`;
+    0x20000000 then marks it added). `FUN_00471ec0` returns 1 whenever
+    the unit has a frame (0 only for Objects.txt Draw off or no graphics),
+    so "drawn" is "in the list", not "on screen". `FUN_004ddb70` ->
+    `FUN_004dd7c0` fill it from the player's room's near list
+    (`FUN_00619bd0`): a room whose client px box (`FUN_00619c40`, corners
+    by `FUN_006433c0`) meets the view's, widened 200 left and 400 down,
+    puts each unit whose tile (`FUN_00643340`) is in the view's unit grid:
+    W/160 + 11 + (H-40)/80 + 11 tiles square (`FUN_004dce60`), from the
+    view's tile less 3 in x and less W/160 + 11 in y. At 800 x 600 that is
+    x -9..+24, y -17..+16 tiles round the player: well past the screen
+    toward its bottom right. `rules::in_unit_grid` / `room_in_view`, and
+    `automap_icons` over the near rooms (`game::missile_rooms`), the
+    neighbour levels' objects too.
   - The top right's lines (above), but the game name / password and the
     game type 6 / 8 line.
 - Not yet: other players' pets' marks, the bank's name, the miniatures.
@@ -258,6 +311,10 @@ dropped, otherwise the cel decides.
   cel list; game.exe's to one (`DAT_007a5168`, untraced which). The
   fade's inner distances read the octagon's half (`ECX` there, unverified).
   Center Automap does nothing: d2d's mini map box never moves.
+- The scroll is `rules::automap_scroll`, game.exe's to the pixel. Before
+  2026-10-28 d2d started it from the player instead of the view's top
+  left, so the map sat 40 px left and 8 up of the player (each mark on
+  its cell, the map off the world).
 - devctl `debug automap` reveals the whole level.
 - Saved maps: `d2s_automap.hpp` reads and writes the files above;
   `load_automap` / `save_automap` (panels.cpp) run on entering the game,

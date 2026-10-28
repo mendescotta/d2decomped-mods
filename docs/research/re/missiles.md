@@ -83,7 +83,7 @@ minor axis, signs by the target's side. Length 4096.
   room → the near room holding it becomes the path's room.
 
 So a missile aimed at a point inside its own room keeps that room and
-dies at the edge of the room's near rooms (bugs.md #16).
+dies at the edge of the room's near rooms (bugs.md #34, #16 before 2026-10-28).
 
 ## Charged Bolt — FUN_005c9300 → FUN_005c9290
 

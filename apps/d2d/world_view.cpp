@@ -259,6 +259,8 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
     const auto& pal = scene.act_pal.entries().empty() ? scene.pal : scene.act_pal;
     const int screen_w = fb_width(framebuffer);
     const int cx0 = screen_w / 2;
+    g_drawn.level = &level;
+    g_drawn.cells.clear();
     const int map_width  = map.width();
     const int base_x = int(std::floor(cam_x)), base_y = int(std::floor(cam_y));
     // Screen position of cell (gx, gy)'s tile point. A floor's 128-row
@@ -286,8 +288,26 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
     // Blit a single tile at cell (gx, gy)'s iso position, honouring the
     // 80-tall-diamond-at-bottom convention shared by floor/wall pixel
     // buffers.
+    // Drawn, as game.exe sets tile flag 0x20000: a floor or roof whose
+    // spot (its buffer's top left) is in the view's box {-0x50, -0x50,
+    // W + 0x50, H - 0x2f} (FUN_00476000; tested in FUN_004de410 and
+    // FUN_004dea70); a wall with a 32 px block whose top left is in
+    // {-0x20, -0x20, W, H + 0x20}, a side panel taking its half
+    // (FUN_005130a0, the driver's wall draw).
+    auto floor_drawn = [&](int screen_x, int screen_y) {
+        return screen_x >= -0x50 && screen_x < screen_w + 0x50 && screen_y >= -0x50 && screen_y < int(kScreenHeight) - 0x2f;
+    };
+    auto wall_drawn = [&](int screen_x, int screen_y, const d2d::dt1::Tile& tile) {
+        const int left = g_drawn.panel_side == 2 ? screen_w / 2 - 0x20 : -0x20;
+        const int right = g_drawn.panel_side == 1 ? screen_w - screen_w / 2 : screen_w;
+        return std::ranges::any_of(tile.blocks, [&](const auto& block) {
+            const int block_x = screen_x + block.first, block_y = screen_y + block.second;
+            return block_x >= left && block_x < right && block_y > -0x21 && block_y < int(kScreenHeight) + 0x20;
+        });
+    };
     // `layer`: 0 wall, 1 floor, 2 shadow (the pass, not the DT1's own type field).
-    auto blit_cell = [&](int cell_x, int cell_y, const d2d::dt1::Tile& tile, int layer, int alpha = 255) {
+    // `source`: the Level::Pick or DS1 layer cell it's drawn for (g_drawn).
+    auto blit_cell = [&](int cell_x, int cell_y, const d2d::dt1::Tile& tile, int layer, const void* source, int alpha = 255) {
         const auto [iso_x, iso_y] = iso(cell_x, cell_y);
         const int tile_height = std::abs(tile.height);
         const int screen_x = iso_x - kIsoW / 2;         // block x counts from the cell's left corner, whatever the tile's width
@@ -298,6 +318,8 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
         // units and walls each on game.exe's pixels; not traced).
         const int wall_lift = layer == 0 ? 16 : 0;
         const int screen_y = (layer == 0 && tile.type >= 16 ? iso_y + kIsoH - tile.y_shift : iso_y - (tile_height - kIsoH)) - wall_lift;
+        if (layer == 1 ? floor_drawn(screen_x, screen_y) : layer == 0 && wall_drawn(screen_x, screen_y, tile))
+            g_drawn.cells.push_back({ cell_x, cell_y, source });
         if (layer == 2) blit_dt1_shadow(framebuffer, tile, pal, screen_x, screen_y);
         else if (light && layer == 0) blit_dt1_wall_lit(framebuffer, tile, *light, screen_x, screen_y, cell_x, cell_y, alpha < 255, alpha);   // ponytail: "in front" read off the alpha, so a wall fading back still samples the front spots
         else if (light) blit_dt1_tile_lit(framebuffer, tile, *light, screen_x, screen_y, cell_x, cell_y, alpha);
@@ -394,13 +416,13 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
             if (!cell_level) continue;
             if (!cell_level->picks.empty()) {
                 for (const auto& pick : cell_level->shown()[off])
-                    if (pick.layer == 0 && pick.orient >= 16 && !pick.hidden) blit_cell(cell_x, cell_y, *pick.tile, 0);
+                    if (pick.layer == 0 && pick.orient >= 16 && !pick.hidden) blit_cell(cell_x, cell_y, *pick.tile, 0, &pick);
                 continue;
             }
             for (const auto& wall_layer : cell_level->ds1.walls()) {
                 const auto& cell = wall_layer.cells[off];
                 if (cell.hidden || cell.wall_type < 16) continue;
-                if (auto* tile = find_tile(*cell_level, cell.style, cell.sequence, cell.wall_type)) blit_cell(cell_x, cell_y, *tile, 0);
+                if (auto* tile = find_tile(*cell_level, cell.style, cell.sequence, cell.wall_type)) blit_cell(cell_x, cell_y, *tile, 0, &cell);
             }
         }
     // Row-major sweep so back rows render first. dy increases downward
@@ -419,7 +441,7 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
             };
             if (!cell_level->picks.empty()) {                   // the floors game.exe picked
                 for (const auto& pick : cell_level->shown()[off])
-                    if (pick.layer == 1 && !pick.hidden) { blit_cell(cell_x, cell_y, *pick.tile, 1); splash(*pick.tile); }
+                    if (pick.layer == 1 && !pick.hidden) { blit_cell(cell_x, cell_y, *pick.tile, 1, &pick); splash(*pick.tile); }
                 continue;
             }
 
@@ -432,7 +454,7 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
                 // (0, 0, 0) with it is the grass tile, without it nothing.
                 if (cell.hidden || !(cell.prop1 & 2)) continue;
                 if (auto* tile = find_tile(*cell_level, cell.style, cell.sequence, /*type=*/0)) {
-                    blit_cell(cell_x, cell_y, *tile, 1);
+                    blit_cell(cell_x, cell_y, *tile, 1, &cell);
                     splash(*tile);
                 }
             }
@@ -455,7 +477,7 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
             if (!cell_level) continue;
             if (!cell_level->picks.empty()) {
                 for (const auto& pick : cell_level->shown()[off])
-                    if (pick.layer == 2 && !pick.hidden) blit_cell(cell_x, cell_y, *pick.tile, 2);
+                    if (pick.layer == 2 && !pick.hidden) blit_cell(cell_x, cell_y, *pick.tile, 2, &pick);
                 continue;
             }
             for (const auto& shadow_layer : cell_level->ds1.shadows()) {
@@ -463,7 +485,7 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
                 if (cell.hidden) continue;
                 if (cell.style == 0 && cell.sequence == 0 && cell.wall_type == 0) continue;
                 if (auto* tile = find_tile(*cell_level, cell.style, cell.sequence, /*type=*/13))
-                    blit_cell(cell_x, cell_y, *tile, 2);
+                    blit_cell(cell_x, cell_y, *tile, 2, &cell);
             }
         }
     // Units' shadows, on the ground under the walls and units (the floor
@@ -602,7 +624,7 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
             }
         }
     };
-    struct Roof { int cell_x, cell_y; const d2d::dt1::Tile* tile; };
+    struct Roof { int cell_x, cell_y; const d2d::dt1::Tile* tile; const void* source; };
     std::vector<Roof> roofs;
     for (int diag = -2 * kReach; diag <= 2 * kReach; ++diag) {
         draw_units_through(diag - 1);
@@ -613,14 +635,14 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
             const auto [cell_level, off] = cell_at(cell_x, cell_y);
             if (!cell_level) continue;
             const auto& cell_map = cell_level->ds1;
-            auto draw_wall = [&](int type, const d2d::dt1::Tile& tile, int wall_index) {
-                if (type != 15) { blit_cell(cell_x, cell_y, tile, 0, wall_alpha(cell_level, int(off), type, wall_index, cell_x, cell_y)); return; }
-                roofs.push_back({ cell_x, cell_y, &tile });   // roofs go last, over every wall and unit (FUN_004dea70 after FUN_004df1c0)
+            auto draw_wall = [&](int type, const d2d::dt1::Tile& tile, int wall_index, const void* source) {
+                if (type != 15) { blit_cell(cell_x, cell_y, tile, 0, source, wall_alpha(cell_level, int(off), type, wall_index, cell_x, cell_y)); return; }
+                roofs.push_back({ cell_x, cell_y, &tile, source });   // roofs go last, over every wall and unit (FUN_004dea70 after FUN_004df1c0)
             };
             if (!cell_level->picks.empty()) {
                 int wall_index = 0;
                 for (const auto& pick : cell_level->shown()[off])
-                    if (pick.layer == 0 && pick.orient != 13 && pick.orient < 16 && !pick.hidden) draw_wall(pick.orient, *pick.tile, wall_index++);
+                    if (pick.layer == 0 && pick.orient != 13 && pick.orient < 16 && !pick.hidden) draw_wall(pick.orient, *pick.tile, wall_index++, &pick);
                 continue;
             }
             int wall_index = 0;
@@ -631,9 +653,9 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
                 const int type = cell.wall_type;
                 if (type == 0) continue;         // floor marker in wall stream
                 if (type == 13 || type >= 16) continue;        // shadow, lower wall (drawn above)
-                if (auto* tile = find_tile(*cell_level, cell.style, cell.sequence, type)) draw_wall(type, *tile, wall_index);
+                if (auto* tile = find_tile(*cell_level, cell.style, cell.sequence, type)) draw_wall(type, *tile, wall_index, &cell);
                 // A corner (3) is two tiles: the second picked with orientation 4 (FUN_0066e9b0).
-                if (type == 3) if (auto* tile = find_tile(*cell_level, cell.style, cell.sequence, 4)) draw_wall(4, *tile, wall_index);
+                if (type == 3) if (auto* tile = find_tile(*cell_level, cell.style, cell.sequence, 4)) draw_wall(4, *tile, wall_index, &cell);
             }
         }
     }
@@ -647,6 +669,7 @@ void render_world(std::vector<std::uint8_t>& framebuffer,
         // roof_height to FUN_004ddef0, which then fills the table with
         // the environment's light, no lamps); a flat one is lit as a floor.
         const Hole* cutout = g_roof_cutout ? &hole : nullptr;
+        if (floor_drawn(iso_x - kIsoW / 2, iso_y - (std::abs(tile.height) - kIsoH))) g_drawn.cells.push_back({ roof.cell_x, roof.cell_y, roof.source });
         if (light && tile.roof_height) blit_dt1_tile(framebuffer, tile, (*light->pal)[std::size_t(std::clamp(light->ambient, 0, 255) >> 3)], iso_x - kIsoW / 2, iso_y - (std::abs(tile.height) - kIsoH), 255, cutout);
         else if (light) blit_dt1_tile_lit(framebuffer, tile, *light, iso_x - kIsoW / 2, iso_y - (std::abs(tile.height) - kIsoH), roof.cell_x, roof.cell_y, 255, cutout);
         else blit_dt1_tile(framebuffer, tile, pal, iso_x - kIsoW / 2, iso_y - (std::abs(tile.height) - kIsoH), 255, cutout);

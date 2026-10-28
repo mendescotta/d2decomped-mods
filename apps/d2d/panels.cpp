@@ -16,6 +16,7 @@
 #include <object_ids.hpp>
 #include <palette.hpp>
 #include <quests.hpp>
+#include <automap_scroll.hpp>
 #include <rules.hpp>
 
 #include <algorithm>
@@ -27,6 +28,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -723,75 +725,97 @@ void save_automap(Automap& automap, const std::filesystem::path& dir, const std:
     for (auto& cell : automap.cells) cell.saved = true;
 }
 
-void automap_reveal(const Scene& scene, const Level& level, Automap& automap, float player_x, float player_y) {
+// game.exe adds the tiles drawn on screen (flag 0x20000) of the player's
+// room and its near rooms each time the player has moved 80 px
+// (FUN_00459020); d2d the tiles render_world drew (g_drawn), each by its
+// own draw: a cell's floors, walls and roof come in apart. A cel already
+// placed isn't added again (Automap::add).
+void automap_reveal(const Scene& scene, const Level& level, Automap& automap, std::span<const DrawnCell> cells,
+                    int shift_x, int shift_y) {
     const auto& map = level.ds1;
     const int width = int(map.width()), height = int(map.height());
     if (width == 0) return;
-    auto& seen = automap.revealed[level.id];
-    if (seen.size() != std::size_t(width * height)) seen.assign(std::size_t(width * height), 0);
-    const int cell_x = int(std::floor(player_x)), cell_y = int(std::floor(player_y)), reach = 12;
-    for (int tile_y = std::max(0, cell_y - reach); tile_y < std::min(height, cell_y + reach); ++tile_y)
-        for (int tile_x = std::max(0, cell_x - reach); tile_x < std::min(width, cell_x + reach); ++tile_x) {
-            auto& done = seen[std::size_t(tile_y * width + tile_x)];
-            if (done) continue;
-            done = 1;
-            const int act_x = tile_x + level.world_x, act_y = tile_y + level.world_y;     // act tiles
-            const std::uint32_t hash = std::uint32_t(act_x) * 73856093u ^ std::uint32_t(act_y) * 19349663u;   // unsigned: wraps, not UB
-            const int automap_x = (act_x - act_y) * 80 / 10, automap_y = (act_x + act_y) * 40 / 10;
-            // A generated level's tiles are its picks (a maze's DS1 is blank):
-            // FUN_00458f40 adds the room's floors, then its walls, each
-            // not hidden (flag 8); FUN_00457cf0 looks the cel up by the
-            // DT1 tile's orientation, main and sub index (+0x14, +0x18,
-            // +0x1c); a lower wall (the room tile's orientation past 15) sits 24 down.
-            if (!level.shown().empty()) {
-                for (const int floor_or_wall : { 1, 0 })
-                    for (const auto& pick : level.shown()[std::size_t(tile_y * width + tile_x)]) {
-                        if (pick.layer != floor_or_wall || pick.hidden) continue;
-                        if (const int cel = automap_cel(scene, level, pick.tile->type, pick.tile->style, pick.tile->sequence, hash); cel >= 0)
-                            automap.add({ cel, automap_x, automap_y + (pick.orient > 15 ? 24 : 0), floor_or_wall == 1 ? 0 : 1 });
-                    }
-                continue;
+    for (const auto& drawn : cells) {
+        const int tile_x = drawn.x - shift_x, tile_y = drawn.y - shift_y;
+        if (tile_x < 0 || tile_y < 0 || tile_x >= width || tile_y >= height) continue;
+        const auto index = std::size_t(tile_y * width + tile_x);
+        const auto wanted = [&](const void* source) { return !drawn.source || drawn.source == source; };
+        const int act_x = tile_x + level.world_x, act_y = tile_y + level.world_y;     // act tiles
+        const std::uint32_t hash = std::uint32_t(act_x) * 73856093u ^ std::uint32_t(act_y) * 19349663u;   // unsigned: wraps, not UB
+        const int automap_x = (act_x - act_y) * 80 / 10, automap_y = (act_x + act_y) * 40 / 10;
+        // A generated level's tiles are its picks (a maze's DS1 is blank):
+        // FUN_00458f40 adds the room's floors, then its walls, each
+        // not hidden (flag 8); FUN_00457cf0 looks the cel up by the
+        // DT1 tile's orientation, main and sub index (+0x14, +0x18,
+        // +0x1c); a lower wall (the room tile's orientation past 15) sits 24 down.
+        if (!level.shown().empty()) {
+            for (const auto& pick : level.shown()[index]) {
+                if (pick.layer > 1 || pick.hidden || !wanted(&pick)) continue;
+                if (const int cel = automap_cel(scene, level, pick.tile->type, pick.tile->style, pick.tile->sequence, hash); cel >= 0)
+                    automap.add({ cel, automap_x, automap_y + (pick.orient > 15 ? 24 : 0), pick.layer == 1 ? 0 : 1 });
             }
-            for (const auto& layer : map.floors()) {
-                const auto& tile = layer.cells[std::size_t(tile_y * width + tile_x)];
-                if (tile.hidden || !(tile.prop1 & 2)) continue;
-                if (const int cel = automap_cel(scene, level, 0, tile.style, tile.sequence, hash); cel >= 0) automap.add({ cel, automap_x, automap_y, 0 });
-            }
-            for (const auto& layer : map.walls()) {
-                const auto& tile = layer.cells[std::size_t(tile_y * width + tile_x)];
-                if (tile.hidden || tile.wall_type == 0) continue;
-                if (const int cel = automap_cel(scene, level, tile.wall_type, tile.style, tile.sequence, hash); cel >= 0)
-                    automap.add({ cel, automap_x, automap_y + (tile.wall_type > 15 ? 24 : 0), 1 });
-            }
+            continue;
         }
+        for (const auto& layer : map.floors()) {
+            const auto& tile = layer.cells[index];
+            if (tile.hidden || !(tile.prop1 & 2) || !wanted(&tile)) continue;
+            if (const int cel = automap_cel(scene, level, 0, tile.style, tile.sequence, hash); cel >= 0) automap.add({ cel, automap_x, automap_y, 0 });
+        }
+        for (const auto& layer : map.walls()) {
+            const auto& tile = layer.cells[index];
+            if (tile.hidden || tile.wall_type == 0 || !wanted(&tile)) continue;
+            if (const int cel = automap_cel(scene, level, tile.wall_type, tile.style, tile.sequence, hash); cel >= 0)
+                automap.add({ cel, automap_x, automap_y + (tile.wall_type > 15 ? 24 : 0), 1 });
+        }
+    }
 }
 
-// FUN_00458dc0 as a room's units come in: an object with an Objects.txt
-// AutoMap cel adds it once, at its world px / 10 + (1, -3) (FUN_00457e80):
-// the bank (267) only in Acts 3 and 4, the sewer stairs (366) when ON, the
-// waypoint 402 only in the Arcane Sanctuary.
-// ponytail: "comes in" is d2d's reveal reach (12 tiles round the player),
-// game.exe's the unit's flag 0x10000000; monsters' MonStats2 cels aren't
-// added (no 1.14d row has one).
-void automap_icons(const Level& level, Automap& automap, float player_x, float player_y, const std::vector<UnitState>& states) {
-    constexpr float kReach = 12;
-    for (std::size_t i = 0; i < level.npcs.size(); ++i) {
-        const auto& npc = level.npcs[i];
-        if (npc.root != "objects" || npc.automap <= 0) continue;
-        const auto* state = i < states.size() ? &states[i] : nullptr;
-        if (state && state->hidden) continue;
-        const float x = state ? state->x : npc.x, y = state ? state->y : npc.y;
-        const std::string_view mode = state && !state->mode.empty() ? state->mode : std::string_view(npc.mode);
-        if (std::abs(x - player_x) >= kReach || std::abs(y - player_y) >= kReach) continue;
+// FUN_00458dc0 over a room's units: an object the view draws (unit flag
+// 0x10000000, FUN_004dc7b0) with an Objects.txt AutoMap cel adds it once
+// (flag 0x20000000), at its world px / 10 + (1, -3) (FUN_00457e80): the
+// bank (267) only in Acts 3 and 4, the sewer stairs (366) when ON, the
+// waypoint 402 only in the Arcane Sanctuary. The view draws the units of
+// the player's room and its near rooms whose box meets the view's, those
+// in its unit grid (rules::room_in_view, rules::in_unit_grid).
+// ponytail: monsters' MonStats2 cels aren't added (no 1.14d row has one).
+void automap_icons(const GameData& game_data, const Level& level, Automap& automap, float player_x, float player_y,
+                   const std::vector<UnitState>& states) {
+    constexpr int kWidth = int(kScreenWidth), kViewHeight = int(kScreenHeight) - 40;   // the view (FUN_00476000)
+    const float player_act_x = player_x + float(level.world_x), player_act_y = player_y + float(level.world_y);
+    const int view_x = int(std::lround((player_act_x - player_act_y) * 80)) - kWidth / 2;   // FUN_0044c990
+    const int view_y = int(std::lround((player_act_x + player_act_y) * 40)) - kViewHeight / 2;
+    auto rooms = game::missile_rooms(game_data, level, player_x, player_y);   // act subtiles: the player's room, then its near list
+    if (rooms.empty()) return;
+    rooms.erase(rooms.begin());
+    std::erase_if(rooms, [&](const auto& room) {
+        return !d2d::rules::room_in_view(view_x, view_y, kWidth, kViewHeight, room[0] / 5, room[1] / 5, room[2] / 5, room[3] / 5);
+    });
+    const auto add_icons = [&](const Level& owner, const std::vector<UnitState>& owner_states) {
         namespace ids = d2d::rules::object_ids;
-        const int act = d2d::rules::level_ids::act_of(level.id);
-        if (npc.object_id == ids::kBank && act != 2 && act != 3) continue;
-        if (npc.object_id == ids::kSewerStairs && mode != "ON") continue;
-        if (npc.object_id == ids::kSanctuaryWaypoint && level.id != d2d::rules::level_ids::kArcaneSanctuary) continue;
-        const float act_x = x + float(level.world_x), act_y = y + float(level.world_y);
-        const int pixel_x = int(std::lround((act_x - act_y) * 80)), pixel_y = int(std::lround((act_x + act_y) * 40));
-        automap.add({ npc.automap, pixel_x / 10 + 1, pixel_y / 10 - 3, 2 });
-    }
+        const int act = d2d::rules::level_ids::act_of(owner.id);
+        for (std::size_t slot = 0; slot < owner.npcs.size(); ++slot) {
+            const auto& npc = owner.npcs[slot];
+            if (npc.root != "objects" || npc.automap <= 0) continue;
+            const auto* state = slot < owner_states.size() ? &owner_states[slot] : nullptr;
+            if (state && state->hidden) continue;
+            const float x = state ? state->x : npc.x, y = state ? state->y : npc.y;
+            const std::string_view mode = state && !state->mode.empty() ? state->mode : std::string_view(npc.mode);
+            if (npc.object_id == ids::kBank && act != 2 && act != 3) continue;
+            if (npc.object_id == ids::kSewerStairs && mode != "ON") continue;
+            if (npc.object_id == ids::kSanctuaryWaypoint && owner.id != d2d::rules::level_ids::kArcaneSanctuary) continue;
+            const float act_x = x + float(owner.world_x), act_y = y + float(owner.world_y);
+            const int subtile_x = int(std::floor(act_x * 5)), subtile_y = int(std::floor(act_y * 5));
+            if (std::ranges::none_of(rooms, [&](const auto& room) {
+                    return subtile_x >= room[0] && subtile_y >= room[1] && subtile_x < room[0] + room[2] && subtile_y < room[1] + room[3];
+                })) continue;
+            const int pixel_x = int(std::lround((act_x - act_y) * 80)), pixel_y = int(std::lround((act_x + act_y) * 40));
+            if (!d2d::rules::in_unit_grid(view_x, view_y, kWidth, kViewHeight, pixel_x, pixel_y)) continue;
+            automap.add({ npc.automap, pixel_x / 10 + 1, pixel_y / 10 - 3, 2 });
+        }
+    };
+    add_icons(level, states);
+    for (const auto& neighbour : level.nearby)   // a near room can be the next level's
+        if (neighbour.level->layer == level.layer) add_icons(*neighbour.level, {});
 }
 
 // The automap (FUN_00459700 / FUN_00459440 / FUN_0045a860): its cels
@@ -808,10 +832,9 @@ void draw_automap(std::vector<std::uint8_t>& framebuffer, const Scene& scene, co
     // one goes to the other corner (FUN_00459700).
     const bool on_left = automap.panel_side == 1 ? true : automap.panel_side == 2 ? false : automap.left;
     const int shift = mini ? 0 : automap.panel_side == 1 ? -kWidth / 4 : automap.panel_side == 2 ? kWidth / 4 : 0;
-    const int box_x = on_left ? 0 : kWidth * 2 / 3, box_y = on_left ? (automap.portraits ? 0x60 : 0) : 0x4e;   // FUN_00457520
-    const int offset_x = mini ? kWidth / 3 - box_x - 0x10 : 0, offset_y = mini ? kHeight / 3 - box_y - 0x10 : 0;   // 0x7a5188 / 0x7a518c
-    const int scroll_x = int(std::lround((player_x - player_y) * 80 / float(divisor))) - kWidth / 2 - shift + 0x28 + offset_x;
-    const int scroll_y = int(std::lround((player_x + player_y) * 40 / float(divisor))) - kHeight / 2 + 0xf + offset_y;
+    // The player's cell on their feet, full size (rules/automap_scroll.hpp).
+    const auto [scroll_x, scroll_y] = d2d::rules::automap_scroll(int(std::lround((player_x - player_y) * 80)), int(std::lround((player_x + player_y) * 40)),
+                                                                 kWidth, kHeight, mini, on_left, automap.portraits, automap.panel_side);
     // The cels' clip: the screen, or the mini map's box (FUN_00459440).
     const int clip_x0 = !mini ? 0 : on_left ? 0 : kWidth - 0x119;
     const int clip_y0 = !mini ? 0 : on_left ? (automap.portraits ? 0x60 : 0) - 0x15 : 0x39;
@@ -826,7 +849,7 @@ void draw_automap(std::vector<std::uint8_t>& framebuffer, const Scene& scene, co
         if (fade == 2) return 1;
         if (fade == 3) return automap.in_town ? (mini ? 1 : 2) : 5;
         if (fade != 1 || mini) return 5;
-        const int centre_x = kWidth / 2 + shift, centre_y = kHeight / 2;
+        const int centre_x = kWidth / 2 + shift, centre_y = (kHeight - 40) / 2;   // 0x7a5220 / 2, 0x7a521c / 2
         if (x < centre_x - 0x8c || x > centre_x + 0x8c || y < centre_y - 0x96 || y > centre_y + 0x82) return 5;
         const int across = std::abs(centre_x - x), down = std::abs(centre_y - 10 - y);
         const int distance = (down < across ? down + across * 2 : across + down * 2) / 2;

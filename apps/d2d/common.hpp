@@ -55,6 +55,20 @@ constexpr int kMaxViewWidth = 1400;
 // (see main.cpp's resize handling). Read by the world's light grid and rain.
 inline int g_view_width = int(kScreenWidth);
 
+// What the last render_world drew, as game.exe's tile flag 0x20000 (its
+// tile draws, FUN_004de410 / FUN_005130a0). The automap reveals only
+// those, and only for the level they were drawn in (automap.md
+// "Revealing").
+// A tile drawn: its cell in render_world's level grid and where it came
+// from, the Level::Pick or DS1 layer cell (nullptr: all of the cell's).
+struct DrawnCell { int x, y; const void* source; };
+struct Drawn {
+    const Level* level = nullptr;
+    int panel_side = 0;                         // Automap::panel_side: a wall draws only in the other half (FUN_005130a0)
+    std::vector<DrawnCell> cells;
+};
+inline Drawn g_drawn;
+
 // Dev overlay toggled by devctl `debug collision`: blocked subtiles in red.
 inline bool g_debug_collision = false;
 

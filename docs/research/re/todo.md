@@ -2,8 +2,10 @@
 
 One list of what d2d still doesn't do, or doesn't do the way game.exe
 1.14d does, in the base game (no expansion). Act 5 and the LoD-only
-classes and items are out of scope here. The details stay in the docs
-each row points to; this file is the index. As of 2026-10-23.
+classes and items are out of scope here: what's open there is in PLAN.md
+"Checkpoint 2026-10-24: Act 5" ("Still open for Act 5"). The details stay
+in the docs each row points to; this file is the index. Rows as of
+2026-10-23; the sound and `ponytail:` counts as of 2026-10-28.
 
 **Kind:**
 - *build*: game.exe does it and d2d doesn't yet.
@@ -39,15 +41,17 @@ Ranked by Seen, then by how much play it touches.
 ## Sounds
 
 `tools/sound_coverage.py <mpq dir>`: 3,414 of the base install's 3,520
-sounds play, 106 don't (2026-10-27).
+sounds play, 106 don't (2026-10-28). 97 of the 106 are traced as never
+played by stock 1.14d (rows 16, 18 and 19), so d2d plays 3,414 of the 3,423
+the original does (unit-sounds.md "In d2d").
 
 | # | What | Count | Kind | Seen | Notes |
 |---|---|---|---|---|---|
 | 16 | The hero's quest lines: each quest's "find" and "complete" voice, five classes | 70 | build | yes | Triggers include Cain rescue, Seven Tombs, Act 3 completions and prior Act 1 / 2 cues. 14 remaining per classic class (70 sounds: act 2's begin_tainted, complete_tightspot and four find lines, events 0x31, 0x35, 0x39..0x3c) have no server dispatch in stock 1.14d (unit-sounds.md). |
 | 17 | The classic quest music jingles (Andariel, Blood Raven, Den, Forge, Horadric …) | 10 | build | yes | Wired at the quest completion/object event; music.md |
-| 18 | Code-played one-offs: Andariel's quake loop and fire end, the Hellforge smash, shrine overlays, corpse loot, trap trigger, sewer water, Wanderer's fissure, monster casts, steal impacts | ~30 | build | yes | sound_coverage.py's "code:" buckets; Energy Shield, Barbarian Leap, town-restricted skill, leech, missile ProgSound, classic quest music cues and Diablo's death schwing / hit are wired. |
+| 18 | Code-played one-offs: Andariel's quake loop and fire end, the Hellforge smash, shrine overlays, corpse loot, trap trigger, sewer water, Wanderer's fissure, monster casts, steal impacts | ~30 | build | yes | sound_coverage.py's "code:" buckets; Energy Shield, Barbarian Leap, town-restricted skill, leech, missile ProgSound, classic quest music cues and Diablo's death schwing / hit are wired. The monster cast / skeleton cast / Izual taunt_2 rows are never played (unit-sounds.md). |
 | 19 | NPC lines left: Alkor / Asheara / Hratli / Ormus act 3 q4, Cain's act 4 greeting, Tyrael after a4q2, Warriv's act 2 gossip, guard greeting, rogue / Iron Wolf hireling confirms | 21 | build | yes | Cain's act 1 help is wired (the Gibbet's call). As traced, stock 1.14d plays none of the rest: not in the speech table, no client code plays them, and the rogue confirm's C→S 0x46 is never sent (unit-sounds.md). |
-| 20 | Skills' prgsound; block and kick sounds; monsters' own skill stsound | — | build | yes | unit-sounds.md; dosound a / b are in (only Jab's is ever played) |
+| 20 | Skills' prgsound; monsters' own skill stsound | — | build | yes | unit-sounds.md; dosound a / b are in (only Jab's is ever played); the player's block and kick sounds are in |
 | 21 | Camp floors: DS1 tiles aren't in `room_floors`, so footsteps there are always dirt | — | exact | yes | unit-sounds.md |
 
 ## Animation and drawing
@@ -106,8 +110,8 @@ docs/design/net-join-plan.md, PLAN.md "Checkpoint 2026-10-19".
 
 ## The long tail
 
-456 `ponytail:` notes in components/ and apps/ (2026-10-23), most in
-ai.cpp (48), fight.cpp (45), world.cpp (44) and fight.hpp (42). Each names
+513 `ponytail:` notes in components/ and apps/ (2026-10-28), most in
+ai.cpp (71), fight.cpp (47), world.cpp (45) and fight.hpp (42). Each names
 the game.exe function to trace when it matters. act1-gaps.md sorted them
 on 2026-10-10 (most don't change single-player play); `git grep -n
 ponytail:` lists them. Items here that a player could notice belong in a

@@ -7,10 +7,12 @@
 #include <character.hpp>
 #include <character_store.hpp>
 #include <combat.hpp>
+#include <cues.hpp>
 #include <d2s.hpp>
 #include <d2s_items.hpp>
 #include <d2s_write.hpp>
 #include <drops.hpp>
+#include <fight.hpp>
 #include <gamedata.hpp>
 #include <gamedata_load.hpp>
 #include <inventory.hpp>
@@ -222,6 +224,12 @@ int main(int argc, char** argv) try {
         const auto* bash = data->skills.get(126);
         assert(bash && bash->st_sound_class == data->sound_index.at("barbarian_grunt_small_1") && bash->st_sound_delay && bash->hit_class == 112);
         const auto& bolt = data->missiles.at("firebolt");
+        // Missiles.txt HitClass is a number (FUN_00661b20: type 4, +0x94): an arrow's bow class
+        // is the struck player's impact_arrow, and a later block's block_arrow.
+        const int arrow = data->missiles.at("arrow").hit_class;
+        assert(arrow == 10 && data->missiles.at("javelin").hit_class == 6);
+        if (const auto spit = data->missiles.find("goospit1"); spit != data->missiles.end()) assert(spit->second.hit_class == 0xb0);
+        assert(d2d::rules::sound_ids::impact(arrow, false).impact == 347 && d2d::rules::sound_ids::block(arrow) == 401);
         assert(std::ranges::any_of(data->monsters.types, [](const auto& type) { return type.id == "zombie1" && type.hit_class == 12; }));
         const auto& zombie = data->mon_sounds.at("zombie");   // its Neutral every 300 ticks at most, two light steps a walk
         assert(zombie.neutral == data->sound_index.at("zombie_neutral_1") && zombie.neutral_time == 300 && zombie.footstep == data->sound_index.at("light_walk_dirt_1") && zombie.fs_count == 2);
@@ -346,6 +354,28 @@ int main(int argc, char** argv) try {
         assert(rallied(0));
         assert(!rallied(-1));
     }
+    {
+        // Diablo's cold touch (DiabCold, FUN_005cce80) lands one sure hit: the foe keeps
+        // Diablo's hit class for its get-hit's impact sound and a later block's.
+        const auto diablo_row = data->monsters.by_id.find("diablo");
+        const auto cold = data->skills.by_name.find("DiabCold");
+        assert(diablo_row != data->monsters.by_id.end() && cold != data->skills.by_name.end());
+        d2d::rules::Rng cold_rng{ 3 };
+        Level here{};
+        here.id = d2d::rules::level_ids::kBloodMoor;
+        std::vector<Monster> pack{ make_monster(*data, int(diablo_row->second), 10.f, 10.f, cold_rng, 0) };
+        auto& diablo = pack[0];
+        diablo.skill = cold->second;
+        set_mode(*data, diablo, "SC", 0);
+        std::array<Foe, 1> foes{};
+        foes[0].x = 11.f; foes[0].y = 10.f;
+        const Crowd crowd;
+        std::vector<Missile> missiles;
+        for (std::uint32_t frame = 1; frame <= 100 && foes[0].hits == 0; ++frame)
+            monster_update(*data, here, diablo, foes, cold_rng, frame * 40, 0.04f, crowd, missiles, pack);
+        const int diablo_class = data->monsters.types[diablo_row->second].hit_class;
+        assert(diablo_class != 0 && foes[0].hits == 1 && foes[0].hit_class == diablo_class);
+    }
 
     {
         // The Golden Bird binds to the first qualifying boss made in Act 3,
@@ -372,7 +402,7 @@ int main(int argc, char** argv) try {
         bird_world.fight.add_monster(boss, &act3);             // later Act 3 boss cannot replace it
         bird_world.act3_bind_new_bosses();
         assert(bird_world.golden_bird.bound == first_act3 && bird_world.fight.made_bosses.empty());
-        bird_world.fight.add_monster(boss, &act3);             // unarmed: later bosses are dropped
+        bird_world.fight.add_monster(std::move(boss), &act3);  // unarmed: later bosses are dropped
         bird_world.act3_bind_new_bosses();
         assert(bird_world.golden_bird.bound == first_act3 && !bird_world.golden_bird.armed && bird_world.fight.made_bosses.empty());
     }
@@ -434,6 +464,91 @@ int main(int argc, char** argv) try {
         assert(std::ranges::none_of(world.cues.due, [](const Cues::Cue& cue) { return cue.sound == snd::kDiabloDeathSchwing || cue.sound == snd::kDiabloDeathHit; }));
         world.cues.due.clear();
         std::printf("OK: Diablo's death plays its schwing and hit after it\n");
+    }
+    {   // A missile's hit class (Foe::hit_class) is the struck player's, a get-hit keeps it, and a
+        // later block plays its block sound (FUN_004cb860): an arrow's block_arrow. A kick plays
+        // weapon_kick (FUN_004cc5b0), an Assassin's 4 ticks on.
+        namespace snd = d2d::rules::sound_ids;
+        const std::uint32_t hit_ms = 26 * kTickMs;
+        auto& hero = *world.actor;
+        const auto life = hero.character.stats.values[d2d::d2s::kLife];
+        const auto items = hero.character.items;
+        const auto count = [&](int sound, std::uint32_t when_ms) {
+            return std::ranges::count_if(world.cues.due, [&](const Cues::Cue& cue) { return cue.sound == sound && cue.when_ms == when_ms; });
+        };
+        const int arrow = data->missiles.contains("arrow") ? data->missiles.at("arrow").hit_class : 10;
+        world.cues.due.clear();
+        auto side = std::array{ world.fight.player_foe(hit_ms), world.fight.merc_foe(hit_ms) };
+        side[0].hits = 1;
+        side[0].hit_class = arrow;
+        side[0].damage = side[0].physical = std::max(int(hero.character.stats.fixed(d2d::d2s::kMaxLife) / 4), 1);
+        hero.pmode = -1;
+        world.fight.hurt_side(side, hit_ms);
+        assert(hero.pmode == kModeGH && hero.shown_class == arrow && hero.struck_class == 0);
+        assert(count(snd::impact(arrow, false).impact, hit_ms) == 1);
+        hero.pmode = -1;
+        world.cues.due.clear();
+        auto blocked = std::array{ world.fight.player_foe(hit_ms), world.fight.merc_foe(hit_ms) };
+        blocked[0].blocked = true;
+        world.fight.hurt_side(blocked, hit_ms);
+        assert(hero.pmode == kModeBL && count(snd::kBlockArrow, hit_ms) == 1);
+        // The landed blow's class, not a melee swing that missed the same frame; a small hit
+        // that knocks back plays it on the knockback's get-hit.
+        const auto zombie = std::ranges::find(data->monsters.types, std::string_view("zombie1"), [](const auto& type) { return std::string_view(type.id); });
+        assert(zombie != data->monsters.types.end() && zombie->hit_class != arrow);
+        Monster swinger;
+        swinger.type = int(zombie - data->monsters.types.begin());
+        world.fight.add_monster(swinger);
+        hero.pmode = -1;
+        world.cues.due.clear();
+        auto knocked = std::array{ world.fight.player_foe(hit_ms), world.fight.merc_foe(hit_ms) };
+        knocked[0].hits = 1;
+        knocked[0].hit_class = arrow;
+        knocked[0].melee_by.push_back(world.fight.monsters.back().id);
+        knocked[0].damage = knocked[0].physical = 1;
+        for (const auto& [step_x, step_y] : { std::pair{ 1.f, 0.f }, { -1.f, 0.f }, { 0.f, 1.f }, { 0.f, -1.f } })
+            if (!world.level->unit_blocked(hero.player.x + step_x, hero.player.y + step_y, hero.player.shape)) {
+                knocked[0].knocked_from = std::pair{ hero.player.x - step_x, hero.player.y - step_y };
+                break;
+            }
+        assert(knocked[0].knocked_from);
+        world.fight.hurt_side(knocked, hit_ms);
+        assert(hero.pmode == kModeGH && hero.shown_class == arrow && count(snd::impact(arrow, false).impact, hit_ms) == 1);
+        world.fight.monsters.pop_back();
+        hero.knock.reset();
+        // A hit too small for a get-hit moves the class too (FUN_0057cee0 sets unit flag 0x8000,
+        // FUN_00597cf0 sends +0xb0 in S->C 0x0c): the next block plays a weapon's, not the arrow's.
+        const auto weapon = std::ranges::find_if(data->monsters.types, [](const auto& type) { return snd::block(type.hit_class) == snd::kBlockWeapon; });
+        assert(weapon != data->monsters.types.end());
+        hero.pmode = -1;
+        world.cues.due.clear();
+        auto grazed = std::array{ world.fight.player_foe(hit_ms), world.fight.merc_foe(hit_ms) };
+        grazed[0].hits = 1;
+        grazed[0].hit_class = weapon->hit_class;
+        grazed[0].damage = grazed[0].physical = 1;
+        world.fight.hurt_side(grazed, hit_ms);
+        assert(hero.pmode != kModeGH && hero.shown_class == weapon->hit_class);
+        hero.pmode = -1;
+        auto blocked_again = std::array{ world.fight.player_foe(hit_ms), world.fight.merc_foe(hit_ms) };
+        blocked_again[0].blocked = true;
+        world.fight.hurt_side(blocked_again, hit_ms);
+        assert(hero.pmode == kModeBL && count(snd::kBlockWeapon, hit_ms) == 1 && count(snd::kBlockArrow, hit_ms) == 0);
+        hero.pmode = -1;
+        world.cues.due.clear();
+        world.fight.set_pmode(kModeKK, hit_ms);
+        assert(count(snd::kKick, hit_ms) == 1);
+        const auto was = hero.character.character_class;
+        hero.character.character_class = d2d::d2s::kAssassin;
+        world.cues.due.clear();
+        world.fight.set_pmode(kModeKK, hit_ms);
+        assert(count(snd::kKick, hit_ms) == 0 && count(snd::kKick, hit_ms + snd::kKickDelayMs) == 1);
+        hero.character.character_class = was;
+        hero.pmode = -1; hero.player.mode_ms = hit_ms;
+        hero.character.stats.values[d2d::d2s::kLife] = life;
+        hero.character.items = items;
+        hero.struck_class = hero.shown_class = 0;
+        world.cues.due.clear();
+        std::printf("OK: an arrow's get-hit, then block_arrow on a block; a graze's class blocked; weapon_kick, an Assassin's late\n");
     }
     {   // A vendor's stock and Kashya's hire list last the game, not one opening.
         const auto& npcs = world.level->npcs;
@@ -507,7 +622,7 @@ int main(int argc, char** argv) try {
         const auto look = hero.character.appearance;
         hero.character.character_class = d2d::d2s::kAmazon;      // her starting javelin: 1ht, which has Jab's sequence
         hero.character.appearance.reset();
-        const auto levels = fight.skill_level;
+        auto levels = std::move(fight.skill_level);
         const int attack = hero.attack_skill;
         const auto mana = hero.character.stats.values[d2d::d2s::kMana];
         fight.skill_level = [](int) { return 1; };
@@ -527,7 +642,7 @@ int main(int argc, char** argv) try {
         assert(std::ranges::count(world.cues.due, jab->do_sound_a, &Cues::Cue::sound) == sound_frames);
         hero.character.character_class = barbarian;
         hero.character.appearance = look;
-        fight.skill_level = levels;
+        fight.skill_level = std::move(levels);
         hero.attack_skill = attack;
         hero.character.stats.values[d2d::d2s::kMana] = mana;
         hero.swing_skill = 0;

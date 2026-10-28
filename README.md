@@ -41,7 +41,7 @@ keyboard.
 | Single player, softcore and hardcore | ✅ |
 | Gamepad (Xbox, PlayStation, Switch, Steam Deck) | ✅ remappable ([apps/d2d](apps/d2d/README.md)) |
 | Joining a game hosted by the original | 🚧 Acts I–IV checked live, Act V not yet |
-| Sound | 🚧 3,411 of 3,520 ([unit-sounds.md](docs/research/re/unit-sounds.md)) |
+| Sound | 🚧 3,414 of 3,520; 3,414 of the 3,423 the original plays, as traced ([unit-sounds.md](docs/research/re/unit-sounds.md)) |
 | Multiplayer with a d2d host | Not started |
 | Dedicated server | Not started |
 
@@ -72,8 +72,9 @@ headless mode and local control channel for scripted play and testing, and
 opt-in crash reports from the launcher (off by default; see
 [apps/README.md](apps/README.md)), and gamepad play.
 Small comforts, each switchable off with `--toggle`: gold is picked up by
-walking over it, roofs turn see-through around your character, and the
-world's sounds pause with the game menu.
+walking over it, roofs turn see-through around your character, lights reach
+the screen's edges at any resolution, and the world's sounds pause with the
+game menu.
 
 **Planned:** let d2d host multiplayer games and run a dedicated server, and
 support high-DPI displays. These features are not implemented yet.
