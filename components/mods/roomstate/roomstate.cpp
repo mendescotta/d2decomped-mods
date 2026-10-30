@@ -155,7 +155,8 @@ Replay replay(std::span<const d2d::rules::Spawn> tail, std::size_t from, const s
             const int at = int(from + out.spawns.size());
             index_of[i] = at;
             const int leader = monster.leader == int(i) ? at : monster.leader >= 0 && monster.leader < int(i) ? index_of[std::size_t(monster.leader)] : -1;
-            out.spawns.push_back({ monster.type, monster.x, monster.y, leader, monster.super, monster.boss, monster.mods, monster.name_seed, monster.seed, {}, false, room });
+            out.spawns.push_back({ .type = monster.type, .x = monster.x, .y = monster.y, .leader = leader, .super = monster.super, .boss = monster.boss,
+                                   .mods = monster.mods, .name_seed = monster.name_seed, .seed = monster.seed, .pop_room = room });   // named: Spawn gains fields upstream
             out.life.push_back(monster.life);
             rolled.push_back(false);
         }
